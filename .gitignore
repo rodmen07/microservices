@@ -3,6 +3,8 @@ ai-orchestrator-service/
 auth-service/
 backend-service/
 frontend-service/
+task-api-service/
+task-portal-service/
 
 # OS/editor
 .DS_Store

@@ -2,9 +2,9 @@
 
 This folder contains a multi-service ecosystem:
 
-- `backend-service` (Rust/Axum API + SQLite)
+- `task-api-service` (Rust/Axum API + SQLite, repo folder: `backend-service`)
 - `ai-orchestrator-service` (Python planner microservice)
-- `frontend-service` (React/Vite TypeScript UI)
+- `task-portal-service` (React/Vite TypeScript UI, repo folder: `frontend-service`)
 - `auth-service` (Python JWT issuance/verification microservice)
 - `accounts-service` (Rust/Axum account and tenant domain API)
 - `contacts-service` (Rust/Axum contact and lead domain API)
@@ -15,8 +15,8 @@ The goal is to keep the platform easy to run locally while preserving stable cro
 
 ### Service boundaries
 
-- **frontend-service** owns web UX, stateful task interactions, and goal visualization.
-- **backend-service** owns canonical task CRUD APIs, validation rules, and persistence.
+- **task-portal-service** owns web UX, stateful task interactions, and goal visualization.
+- **task-api-service** owns canonical task CRUD APIs, validation rules, and persistence.
 - **ai-orchestrator-service** owns provider-facing AI logic and converts goals to task lists.
 - **auth-service** owns token issuance/verification and centralized auth contract.
 
@@ -69,7 +69,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 
 ## 3) Environment and defaults
 
-### backend-service
+### task-api-service
 
 - Default bind: `0.0.0.0:3000`
 - Key env vars: `HOST`, `PORT`, `DATABASE_URL`, `AI_ORCHESTRATOR_PLAN_URL`
@@ -93,7 +93,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
   - `AUTH_TOKEN_EXPIRES_SECONDS` (default `3600`)
   - `AUTH_ISSUER` (default `auth-service`)
 
-### frontend-service
+### task-portal-service
 
 - Uses `VITE_API_BASE_URL` for backend base URL
 - Local default backend: `http://localhost:3000`
@@ -102,12 +102,12 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 ## 4) Local development order
 
 1. Start `ai-orchestrator-service` on port `8081`.
-2. Start `backend-service` on port `3000` (with planner URL set if non-default).
-3. Start `frontend-service` and verify planner + CRUD flows.
+2. Start `task-api-service` on port `3000` (repo folder: `backend-service`, planner URL set if non-default).
+3. Start `task-portal-service` (repo folder: `frontend-service`) and verify planner + CRUD flows.
 
 ## 5) Quality and CI expectations
 
-### backend-service
+### task-api-service
 
 - `cargo fmt --all`
 - `cargo clippy --all-targets --all-features -- -D warnings`
@@ -118,7 +118,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 - `pytest`
 - Preserve timeout + error handling behavior for provider calls
 
-### frontend-service
+### task-portal-service
 
 - `npm run build`
 - Keep TypeScript strict-mode compatibility
@@ -126,7 +126,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 ## 6) Deployment notes
 
 - Frontend is configured for GitHub Pages deployment from `dist/`.
-- Frontend base path must remain compatible with `/frontend-service/` unless deployment strategy changes.
+- Frontend base path must remain compatible with `/frontend-service/` (GitHub repo slug) unless deployment strategy changes.
 - Backend + orchestrator can be deployed independently; planner URL wiring is done through `AI_ORCHESTRATOR_PLAN_URL` in backend.
 
 ## 7) Change management guardrails
@@ -139,25 +139,8 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
   - `public/content/site.json`
   - `/admin/` (dev) and `/frontend-service/admin/` (Pages)
 
-## 8) Future compatibility targets
-
-- Authentication is not enforced in backend v1, but future interface is reserved:
-  - `Authorization: Bearer <token>`
-- New auth work should preserve backward compatibility or include explicit versioning.
-
-## 9) Definition of done for cross-service changes
+## 8) Definition of done for cross-service changes
 
 - Service-local tests/build succeed.
 - Contracts remain consistent across frontend, backend, and orchestrator.
 - README and instructions updated when behavior/config/contracts change.
-
-## 10) CRM microservices roadmap to-do
-
-- [x] `accounts-service` scaffolded (account/tenant domain baseline)
-- [x] `contacts-service` scaffolded (contacts/leads domain baseline)
-- [x] `opportunities-service` (pipeline, stages, forecasting)
-- [x] `activities-service` (emails/calls/meetings/tasks timeline)
-- [x] `automation-service` (workflows/triggers/queue workers)
-- [x] `integrations-service` (email/calendar/webhook connectors)
-- [x] `search-service` (cross-entity indexing + global search)
-- [x] `reporting-service` (dashboards, exports, analytics)
