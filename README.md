@@ -159,5 +159,5 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 - [x] `activities-service` (emails/calls/meetings/tasks timeline)
 - [x] `automation-service` (workflows/triggers/queue workers)
 - [x] `integrations-service` (email/calendar/webhook connectors)
-- [ ] `search-service` (cross-entity indexing + global search)
-- [ ] `reporting-service` (dashboards, exports, analytics)
+- [x] `search-service` (cross-entity indexing + global search)
+- [x] `reporting-service` (dashboards, exports, analytics)
