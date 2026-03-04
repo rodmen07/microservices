@@ -155,8 +155,8 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 
 - [x] `accounts-service` scaffolded (account/tenant domain baseline)
 - [x] `contacts-service` scaffolded (contacts/leads domain baseline)
-- [ ] `opportunities-service` (pipeline, stages, forecasting)
-- [ ] `activities-service` (emails/calls/meetings/tasks timeline)
+- [x] `opportunities-service` (pipeline, stages, forecasting)
+- [x] `activities-service` (emails/calls/meetings/tasks timeline)
 - [ ] `automation-service` (workflows/triggers/queue workers)
 - [ ] `integrations-service` (email/calendar/webhook connectors)
 - [ ] `search-service` (cross-entity indexing + global search)
