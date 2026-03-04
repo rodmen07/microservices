@@ -1,0 +1,21 @@
+# Ignore nested existing service repos in this monorepo bootstrap
+ai-orchestrator-service/
+auth-service/
+backend-service/
+frontend-service/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Rust build outputs
+**/target/
+
+# Python caches
+**/__pycache__/
+**/.pytest_cache/
+
+# Node deps/build
+**/node_modules/
+**/dist/
