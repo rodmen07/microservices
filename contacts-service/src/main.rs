@@ -2,13 +2,13 @@ use std::{collections::HashMap, env, net::SocketAddr, sync::Arc};
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderValue, Method, StatusCode},
     routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 use tracing::info;
 use uuid::Uuid;
 
@@ -52,6 +52,29 @@ struct HealthResponse {
     status: &'static str,
 }
 
+fn build_cors_layer() -> CorsLayer {
+    let configured = env::var("ALLOWED_ORIGINS").unwrap_or_default();
+
+    let origins: Vec<HeaderValue> = configured
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| HeaderValue::from_str(s).ok())
+        .collect();
+
+    if origins.is_empty() {
+        // No origins configured: restrict cross-origin access entirely.
+        return CorsLayer::new()
+            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+            .allow_headers(Any);
+    }
+
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers(Any)
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -80,7 +103,7 @@ async fn main() {
             get(get_contact).patch(update_contact).delete(delete_contact),
         )
         .with_state(state)
-        .layer(CorsLayer::permissive())
+        .layer(build_cors_layer())
         .layer(TraceLayer::new_for_http());
 
     let address: SocketAddr = format!("{host}:{port}")
