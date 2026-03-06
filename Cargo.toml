@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "accounts-service",
+    "activities-service",
+    "automation-service",
+    "contacts-service",
+    "integrations-service",
+    "opportunities-service",
+    "reporting-service",
+    "search-service",
+    "task-api-service",
+]
+resolver = "2"
