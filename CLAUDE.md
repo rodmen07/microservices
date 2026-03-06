@@ -16,7 +16,7 @@ TaskForge: a portfolio microservices system. Nine independently deployed service
 - `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
 - `auth-service` — has a `fly.toml` but minimal implementation.
 
-**Frontend:** `task-portal-service` (React 19 + TypeScript + Vite + Tailwind v3) lives in a separate repo at `d:\Projects\microservices\task-portal-service\` but is git-tracked separately (remote: `frontend-service`).
+**Frontend:** `frontend-service` (React 19 + TypeScript + Vite + Tailwind v3) lives in a separate repo at `d:\Projects\microservices\frontend-service\` but is git-tracked separately (remote: `frontend-service`).
 
 ---
 
@@ -184,9 +184,9 @@ Secrets set via `fly secrets set AUTH_JWT_SECRET=... ALLOWED_ORIGINS=...`.
 
 ---
 
-## Frontend (task-portal-service)
+## Frontend (frontend-service)
 
-Separate git repo. Located at `d:\Projects\microservices\task-portal-service\`.
+Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 - React 19 + TypeScript + Vite + Tailwind v3
 - Hash-based router: `window.location.hash` + `hashchange` event in `src/main.tsx`
@@ -201,7 +201,7 @@ Separate git repo. Located at `d:\Projects\microservices\task-portal-service\`.
 ## Git
 
 - `d:\Projects\microservices\` — Rust workspace (remote: `microservices`)
-- `d:\Projects\microservices\task-portal-service\` — React frontend (remote: `frontend-service`)
+- `d:\Projects\microservices\frontend-service\` — React frontend (remote: `frontend-service`)
 - Commit both repos separately when making cross-cutting changes.
 
 ---
@@ -217,4 +217,4 @@ When upgrading any of the remaining stubs, do in order:
 6. Rewrite `src/lib.rs` with `#[path]` declarations
 7. Rewrite `src/main.rs` to use `AppState::from_database_url` + `build_router`
 8. Add `fly.toml`
-9. Update `task-portal-service/public/content/roadmap.json` to mark as shipped
+9. Update `frontend-service/public/content/roadmap.json` to mark as shipped

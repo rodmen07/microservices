@@ -4,9 +4,9 @@
 
 This folder contains a multi-service ecosystem:
 
-- `task-api-service` (Rust/Axum API + SQLite, repo folder: `backend-service`)
+- `backend-service` (Rust/Axum API + SQLite, repo folder: `backend-service`)
 - `ai-orchestrator-service` (Python planner microservice)
-- `task-portal-service` (React/Vite TypeScript UI, repo folder: `frontend-service`)
+- `frontend-service` (React/Vite TypeScript UI, repo folder: `frontend-service`)
 - `auth-service` (Python JWT issuance/verification microservice)
 - `accounts-service` (Rust/Axum account and tenant domain API)
 - `contacts-service` (Rust/Axum contact and lead domain API)
@@ -17,8 +17,8 @@ The goal is to keep the platform easy to run locally while preserving stable cro
 
 ### Service boundaries
 
-- **task-portal-service** owns web UX, stateful task interactions, and goal visualization.
-- **task-api-service** owns canonical task CRUD APIs, validation rules, and persistence.
+- **frontend-service** owns web UX, stateful task interactions, and goal visualization.
+- **backend-service** owns canonical task CRUD APIs, validation rules, and persistence.
 - **ai-orchestrator-service** owns provider-facing AI logic and converts goals to task lists.
 - **auth-service** owns token issuance/verification and centralized auth contract.
 
@@ -71,7 +71,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 
 ## 3) Environment and defaults
 
-### task-api-service
+### backend-service
 
 - Default bind: `0.0.0.0:3000`
 - Key env vars: `HOST`, `PORT`, `DATABASE_URL`, `AI_ORCHESTRATOR_PLAN_URL`
@@ -95,7 +95,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
   - `AUTH_TOKEN_EXPIRES_SECONDS` (default `3600`)
   - `AUTH_ISSUER` (default `auth-service`)
 
-### task-portal-service
+### frontend-service
 
 - Uses `VITE_API_BASE_URL` for backend base URL
 - Local default backend: `http://localhost:3000`
@@ -104,12 +104,12 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 ## 4) Local development order
 
 1. Start `ai-orchestrator-service` on port `8081`.
-2. Start `task-api-service` on port `3000` (repo folder: `backend-service`, planner URL set if non-default).
-3. Start `task-portal-service` (repo folder: `frontend-service`) and verify planner + CRUD flows.
+2. Start `backend-service` on port `3000` (repo folder: `backend-service`, planner URL set if non-default).
+3. Start `frontend-service` (repo folder: `frontend-service`) and verify planner + CRUD flows.
 
 ## 5) Quality and CI expectations
 
-### task-api-service
+### backend-service
 
 - `cargo fmt --all`
 - `cargo clippy --all-targets --all-features -- -D warnings`
@@ -120,7 +120,7 @@ Provider details must stay isolated in `ai-orchestrator-service`; neither fronte
 - `pytest`
 - Preserve timeout + error handling behavior for provider calls
 
-### task-portal-service
+### frontend-service
 
 - `npm run build`
 - Keep TypeScript strict-mode compatibility
