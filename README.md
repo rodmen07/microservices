@@ -1,5 +1,7 @@
 # Microservices Workspace Specification
 
+**Live site:** https://rodmen07.github.io/frontend-service/
+
 This folder contains a multi-service ecosystem:
 
 - `task-api-service` (Rust/Axum API + SQLite, repo folder: `backend-service`)
