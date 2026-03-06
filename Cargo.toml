@@ -8,6 +8,6 @@ members = [
     "opportunities-service",
     "reporting-service",
     "search-service",
-    "task-api-service",
+    "backend-service",
 ]
 resolver = "2"
