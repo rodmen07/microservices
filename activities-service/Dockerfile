@@ -8,4 +8,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /app/target/release/activities-service /usr/local/bin/activities-service
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && activities-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/activities.db && activities-service"]

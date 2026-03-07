@@ -16,4 +16,4 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /app/target/release/automation-service /usr/local/bin/automation-service
 
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && automation-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/automation.db && automation-service"]

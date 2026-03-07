@@ -8,4 +8,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /app/target/release/accounts-service /usr/local/bin/accounts-service
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && accounts-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/accounts.db && accounts-service"]

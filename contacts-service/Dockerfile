@@ -8,4 +8,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /app/target/release/contacts-service /usr/local/bin/contacts-service
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && contacts-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/contacts.db && contacts-service"]

@@ -16,4 +16,4 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /app/target/release/opportunities-service /usr/local/bin/opportunities-service
 
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && opportunities-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/opportunities.db && opportunities-service"]
