@@ -2,6 +2,7 @@ app = "contacts-service"
 primary_region = "lhr"
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
 PORT = "8080"

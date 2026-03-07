@@ -2,6 +2,7 @@ app = "taskforge-reporting-service"
 primary_region = "iad"
 
 [build]
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "8080"
