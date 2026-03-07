@@ -2,6 +2,7 @@ app = "taskforge-search-service"
 primary_region = "iad"
 
 [build]
+  dockerfile = "search-service/Dockerfile"
 
 [env]
   PORT = "8080"
