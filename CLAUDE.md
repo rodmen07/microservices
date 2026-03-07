@@ -2,21 +2,49 @@
 
 ## What this project is
 
-TaskForge: a portfolio microservices system. Nine independently deployed services, three of which are production-grade. The others are stubs waiting to be upgraded.
+TaskForge: a portfolio microservices system. Nine independently deployed Rust/Axum services, all production-grade with SQLite persistence and JWT auth.
 
-**Deployed and production-grade:**
-- `task-api-service` — Rust/Axum, SQLite, JWT auth, AI planner proxy. Port 3000. The reference implementation.
-- `accounts-service` — Rust/Axum, SQLite, JWT auth. Port 3010.
-- `contacts-service` — Rust/Axum, SQLite, JWT auth, cross-service account validation. Port 3011.
+**Production Rust services (workspace):**
+| Service | Port | Notes |
+|---------|------|-------|
+| `task-api-service` | 3000 | Reference impl. AI planner proxy, admin metrics. |
+| `accounts-service` | 3010 | Status tracking: active/inactive/churned. |
+| `contacts-service` | 3011 | Lifecycle stages, cross-service account FK validation. |
+| `opportunities-service` | 3012 | Pipeline stages: qualification → proposal → closed. |
+| `activities-service` | 3013 | Activity types: call/email/meeting/task. |
+| `automation-service` | 3014 | Event-driven trigger/action workflows. |
+| `integrations-service` | 3015 | Third-party provider connection registry. |
+| `search-service` | 3016 | Full-text search across entity types. |
+| `reporting-service` | 3017 | Saved reports + dashboard summary. |
 
-**Stub (in-memory HashMap, no persistence, no auth):**
-- `activities-service`, `automation-service`, `integrations-service`, `opportunities-service`, `reporting-service`, `search-service`
+**Non-Rust (standalone repos — see `standalones/`):**
+- `standalones/ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
+- `standalones/auth-service` — Python/FastAPI, deployed on Fly.io. Full user auth: password + GitHub OAuth + Google OAuth + password reset.
+- `standalones/backend-service` — Rust/Axum, deployed on Fly.io. Also a Rust workspace member.
+- `standalones/frontend-service` — React 19 + TypeScript + Vite + Tailwind v3. Deployed to GitHub Pages.
 
-**Non-Rust:**
-- `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
-- `auth-service` — has a `fly.toml` but minimal implementation.
+---
 
-**Frontend:** `frontend-service` (React 19 + TypeScript + Vite + Tailwind v3) lives in a separate repo at `d:\Projects\microservices\frontend-service\` but is git-tracked separately (remote: `frontend-service`).
+## Directory layout
+
+```
+d:\Projects\microservices\
+  accounts-service/       Rust workspace — production (port 3010)
+  contacts-service/       Rust workspace — production (port 3011)
+  opportunities-service/  Rust workspace — production (port 3012)
+  activities-service/     Rust workspace — production (port 3013)
+  automation-service/     Rust workspace — production (port 3014)
+  integrations-service/   Rust workspace — production (port 3015)
+  search-service/         Rust workspace — production (port 3016)
+  reporting-service/      Rust workspace — production (port 3017)
+  standalones/
+    backend-service/      Rust/Axum — own git repo (remote: backend-service)
+    auth-service/         Python/FastAPI — own git repo (remote: auth-service)
+    ai-orchestrator-service/ Python/FastAPI — own git repo (remote: ai-orchestrator-service)
+    frontend-service/     React/Vite — own git repo (remote: frontend-service)
+  Cargo.toml              workspace root
+  CLAUDE.md               this file
+```
 
 ---
 
@@ -184,9 +212,9 @@ Secrets set via `fly secrets set AUTH_JWT_SECRET=... ALLOWED_ORIGINS=...`.
 
 ---
 
-## Frontend (frontend-service)
+## Frontend (standalones/frontend-service)
 
-Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
+Separate git repo. Located at `d:\Projects\microservices\standalones\frontend-service\`.
 
 - React 19 + TypeScript + Vite + Tailwind v3
 - Hash-based router: `window.location.hash` + `hashchange` event in `src/main.tsx`
@@ -200,9 +228,14 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 ## Git
 
-- `d:\Projects\microservices\` — Rust workspace (remote: `microservices`)
-- `d:\Projects\microservices\frontend-service\` — React frontend (remote: `frontend-service`)
-- Commit both repos separately when making cross-cutting changes.
+Five repos total:
+- `d:\Projects\microservices\` — Rust workspace root (remote: `microservices`)
+- `d:\Projects\microservices\standalones\backend-service\` — (remote: `backend-service`)
+- `d:\Projects\microservices\standalones\auth-service\` — (remote: `auth-service`)
+- `d:\Projects\microservices\standalones\ai-orchestrator-service\` — (remote: `ai-orchestrator-service`)
+- `d:\Projects\microservices\standalones\frontend-service\` — (remote: `frontend-service`)
+
+Commit standalone repos separately. The root microservices repo tracks only the workspace-only Rust stubs.
 
 ---
 
@@ -217,4 +250,4 @@ When upgrading any of the remaining stubs, do in order:
 6. Rewrite `src/lib.rs` with `#[path]` declarations
 7. Rewrite `src/main.rs` to use `AppState::from_database_url` + `build_router`
 8. Add `fly.toml`
-9. Update `frontend-service/public/content/roadmap.json` to mark as shipped
+9. Update `standalones/frontend-service/public/content/roadmap.json` to mark as shipped
