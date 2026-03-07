@@ -6,7 +6,8 @@ WORKDIR /app
 COPY . .
 
 # Create a local SQLite DB from migrations so sqlx macros can validate queries
-RUN cat migrations/*.sql | sqlite3 /tmp/build.db &&     DATABASE_URL="sqlite:////tmp/build.db" cargo build --release --bin automation-service
+RUN cat automation-service/migrations/*.sql | sqlite3 /tmp/build.db && \
+    DATABASE_URL="sqlite:////tmp/build.db" cargo build --release -p automation-service
 
 FROM debian:bookworm-slim
 
@@ -15,4 +16,4 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /app/target/release/automation-service /usr/local/bin/automation-service
 
 EXPOSE 8080
-CMD ["/usr/local/bin/automation-service"]
+CMD ["sh", "-c", "mkdir -p /data && automation-service"]
