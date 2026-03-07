@@ -16,4 +16,4 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /app/target/release/reporting-service /usr/local/bin/reporting-service
 
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && reporting-service"]
+CMD ["sh", "-c", "mkdir -p /data && touch /data/reporting.db && reporting-service"]
