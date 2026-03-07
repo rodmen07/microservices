@@ -3,9 +3,10 @@ FROM rust:1.82-slim AS builder
 RUN apt-get update && apt-get install -y sqlite3 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY . .
+# Build context is the workspace root; copy only this service's files
+COPY opportunities-service/ .
 
-# Create a local SQLite DB from migrations so sqlx compile-time macros can validate queries
+# Create a local SQLite DB from migrations so sqlx macros can validate queries
 RUN cat migrations/*.sql | sqlite3 /tmp/build.db &&     DATABASE_URL="sqlite:////tmp/build.db" cargo build --release --bin opportunities-service
 
 FROM debian:bookworm-slim
