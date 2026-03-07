@@ -2,7 +2,6 @@ app = "taskforge-opportunities-service"
 primary_region = "iad"
 
 [build]
-  dockerfile = "opportunities-service/Dockerfile"
 
 [env]
   PORT = "8080"

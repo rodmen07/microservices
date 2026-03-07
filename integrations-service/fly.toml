@@ -2,7 +2,6 @@ app = "taskforge-integrations-service"
 primary_region = "iad"
 
 [build]
-  dockerfile = "integrations-service/Dockerfile"
 
 [env]
   PORT = "8080"

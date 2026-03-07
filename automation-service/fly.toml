@@ -2,7 +2,6 @@ app = "taskforge-automation-service"
 primary_region = "iad"
 
 [build]
-  dockerfile = "automation-service/Dockerfile"
 
 [env]
   PORT = "8080"
