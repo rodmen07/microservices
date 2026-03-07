@@ -1,0 +1,6 @@
+{
+  "executionEnvironments": [
+    { "root": "auth-service", "extraPaths": ["auth-service"] },
+    { "root": "ai-orchestrator-service", "extraPaths": ["ai-orchestrator-service"] }
+  ]
+}
