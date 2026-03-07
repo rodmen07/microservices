@@ -20,7 +20,7 @@ TaskForge: a portfolio microservices system. Nine independently deployed Rust/Ax
 **Non-Rust (standalone repos — see `standalones/`):**
 - `standalones/ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
 - `standalones/auth-service` — Python/FastAPI, deployed on Fly.io. Full user auth: password + GitHub OAuth + Google OAuth + password reset.
-- `standalones/backend-service` — Rust/Axum, deployed on Fly.io. Also a Rust workspace member.
+- `standalones/backend-service` — Rust/Axum, deployed on Fly.io. Own git repo, NOT a workspace member.
 - `standalones/frontend-service` — React 19 + TypeScript + Vite + Tailwind v3. Deployed to GitHub Pages.
 
 ---
