@@ -16,7 +16,21 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
+    - name: Create combined SQLite database for sqlx compile-time checks
+      run: |
+        for svc in accounts-service contacts-service opportunities-service \
+                   activities-service automation-service integrations-service \
+                   search-service reporting-service; do
+          cat $svc/migrations/*.sql
+        done | sqlite3 workspace.db
+
     - name: Build
+      env:
+        DATABASE_URL: sqlite://workspace.db
       run: cargo build --verbose
+
     - name: Run tests
+      env:
+        DATABASE_URL: sqlite://workspace.db
       run: cargo test --verbose
