@@ -6,7 +6,6 @@ primary_region = "lhr"
 
 [env]
 PORT = "8080"
-DATABASE_URL = "sqlite:///data/accounts.db"
 
 [mounts]
   source = "accounts_data"

@@ -6,7 +6,6 @@ primary_region = "iad"
 
 [env]
   PORT = "8080"
-  DATABASE_URL = "sqlite:///data/activities.db"
 
 [mounts]
   source = "activities_data"
