@@ -65,7 +65,7 @@ fn auth_issuer() -> String {
 }
 
 fn normalise_pem(raw: &str) -> String {
-    raw.replace("\n", "\n")
+    raw.replace("\\n", "\n")
 }
 
 fn decoding_key(algorithm: Algorithm) -> Result<DecodingKey, AuthError> {

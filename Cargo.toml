@@ -10,3 +10,9 @@ members = [
     "search-service",
 ]
 resolver = "2"
+
+# Workspace-wide clippy configuration.
+# result_large_err: axum::Response is inherently large; boxing it would require
+# invasive changes to all handler return types. Accepted trade-off.
+[workspace.lints.clippy]
+result_large_err = "allow"
