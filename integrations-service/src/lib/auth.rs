@@ -14,6 +14,7 @@ pub struct AuthClaims {
 }
 
 impl AuthClaims {
+    // Returns true if the claims include the given role (case-insensitive)
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.iter().any(|r| r.eq_ignore_ascii_case(role))
     }
@@ -27,6 +28,7 @@ pub enum AuthError {
 }
 
 impl AuthError {
+    // Returns a machine-readable error code string for the auth failure variant
     pub fn code(&self) -> &'static str {
         match self {
             Self::MissingHeader => "AUTH_REQUIRED",
@@ -35,6 +37,7 @@ impl AuthError {
         }
     }
 
+    // Returns a human-readable error message for the auth failure variant
     pub fn message(&self) -> &'static str {
         match self {
             Self::MissingHeader => "authorization header is required",
@@ -44,10 +47,12 @@ impl AuthError {
     }
 }
 
+// Reads the JWT secret from AUTH_JWT_SECRET env var, falling back to a dev default
 fn auth_secret() -> String {
     env::var("AUTH_JWT_SECRET").unwrap_or_else(|_| "dev-insecure-secret-change-me".to_string())
 }
 
+// Reads AUTH_JWT_ALGORITHM env var and returns the corresponding jsonwebtoken Algorithm
 fn auth_algorithm() -> Algorithm {
     let configured = env::var("AUTH_JWT_ALGORITHM").unwrap_or_else(|_| "HS256".to_string());
     match configured.trim().to_uppercase().as_str() {
@@ -60,14 +65,17 @@ fn auth_algorithm() -> Algorithm {
     }
 }
 
+// Reads the expected JWT issuer from AUTH_ISSUER env var, defaulting to "auth-service"
 fn auth_issuer() -> String {
     env::var("AUTH_ISSUER").unwrap_or_else(|_| "auth-service".to_string())
 }
 
+// Replaces literal "\n" escape sequences with real newlines for PEM key strings
 fn normalise_pem(raw: &str) -> String {
     raw.replace("\\n", "\n")
 }
 
+// Constructs the JWT decoding key, using an RSA public key for RS* algorithms or the HMAC secret otherwise
 fn decoding_key(algorithm: Algorithm) -> Result<DecodingKey, AuthError> {
     match algorithm {
         Algorithm::RS256 | Algorithm::RS384 | Algorithm::RS512 => {
@@ -79,6 +87,7 @@ fn decoding_key(algorithm: Algorithm) -> Result<DecodingKey, AuthError> {
     }
 }
 
+// Splits an Authorization header value and returns the Bearer token, or an error if malformed
 fn extract_bearer_token(header_value: &str) -> Result<&str, AuthError> {
     let mut parts = header_value.split_whitespace();
     let Some(scheme) = parts.next() else {
@@ -93,6 +102,7 @@ fn extract_bearer_token(header_value: &str) -> Result<&str, AuthError> {
     Ok(token)
 }
 
+// Validates a JWT Authorization header value and returns the decoded claims on success
 pub fn validate_authorization_header(header_value: Option<&str>) -> Result<AuthClaims, AuthError> {
     let raw_header = header_value.ok_or(AuthError::MissingHeader)?;
     let token = extract_bearer_token(raw_header)?;

@@ -15,6 +15,7 @@ use crate::{
     AppState,
 };
 
+// Builds a CORS layer from the ALLOWED_ORIGINS env var, falling back to permissive headers if unset.
 fn build_cors_layer() -> CorsLayer {
     let configured = env::var("ALLOWED_ORIGINS").unwrap_or_default();
 
@@ -49,6 +50,7 @@ fn build_cors_layer() -> CorsLayer {
         .allow_headers(Any)
 }
 
+// Assembles the full Axum router with all account routes, CORS, and tracing middleware.
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health::health))

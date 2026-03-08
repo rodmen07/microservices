@@ -13,6 +13,7 @@ use crate::{
     models::{Activity, ApiError, CreateActivityRequest, UpdateActivityRequest},
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
@@ -22,6 +23,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -29,6 +31,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Returns all activities ordered by creation date descending
 pub async fn list_activities(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -55,6 +58,7 @@ pub async fn list_activities(
     Ok(Json(rows))
 }
 
+// Fetches a single activity by ID, returning 404 if it does not exist
 pub async fn get_activity(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -83,6 +87,7 @@ pub async fn get_activity(
     Ok(Json(row))
 }
 
+// Validates and inserts a new activity, returning the created record with HTTP 201
 pub async fn create_activity(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -142,6 +147,7 @@ pub async fn create_activity(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
+// Applies partial updates to an existing activity, merging provided fields with stored values
 pub async fn update_activity(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -255,6 +261,7 @@ pub async fn update_activity(
     Ok(Json(updated))
 }
 
+// Deletes an activity by ID, returning 204 on success or 404 if not found
 pub async fn delete_activity(
     headers: HeaderMap,
     Path(id): Path<String>,

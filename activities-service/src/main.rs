@@ -3,6 +3,7 @@ use std::{env, net::SocketAddr};
 use activities_service::{build_router, AppState};
 
 #[tokio::main]
+// Initialises tracing, reads environment config, sets up the database, and starts the HTTP server
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(

@@ -11,6 +11,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    // Creates a SQLite connection pool and runs migrations, returning a ready AppState
     pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> {
         let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
         let pool = SqlitePoolOptions::new()

@@ -13,6 +13,7 @@ use crate::{
     models::{ApiError, CreateWorkflowRequest, UpdateWorkflowRequest, Workflow},
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
@@ -22,6 +23,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -29,6 +31,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Returns all workflows ordered by creation date descending
 pub async fn list_workflows(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -54,6 +57,7 @@ pub async fn list_workflows(
     Ok(Json(rows))
 }
 
+// Fetches a single workflow by ID, returning 404 if it does not exist
 pub async fn get_workflow(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -82,6 +86,7 @@ pub async fn get_workflow(
     Ok(Json(row))
 }
 
+// Validates and inserts a new workflow with enabled=true, returning the created record with HTTP 201
 pub async fn create_workflow(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -138,6 +143,7 @@ pub async fn create_workflow(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
+// Applies partial updates to an existing workflow, merging provided fields with stored values
 pub async fn update_workflow(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -246,6 +252,7 @@ pub async fn update_workflow(
     Ok(Json(updated))
 }
 
+// Deletes a workflow by ID, returning 204 on success or 404 if not found
 pub async fn delete_workflow(
     headers: HeaderMap,
     Path(id): Path<String>,

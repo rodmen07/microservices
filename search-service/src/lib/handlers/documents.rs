@@ -13,6 +13,7 @@ use crate::{
     models::{ApiError, IndexDocumentRequest, SearchDocument, SearchQuery, SearchResult},
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
@@ -22,6 +23,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -29,6 +31,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Searches indexed documents by a query term against title and body, returning truncated snippets
 pub async fn search_documents(
     headers: HeaderMap,
     Query(query): Query<SearchQuery>,
@@ -82,6 +85,7 @@ pub async fn search_documents(
     Ok(Json(results))
 }
 
+// Returns all indexed search documents ordered by creation date descending
 pub async fn list_documents(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -106,6 +110,7 @@ pub async fn list_documents(
     Ok(Json(rows))
 }
 
+// Fetches a single indexed document by ID, returning 404 if it does not exist
 pub async fn get_document(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -133,6 +138,7 @@ pub async fn get_document(
     Ok(Json(row))
 }
 
+// Validates and inserts a new search document into the index, returning the created record with HTTP 201
 pub async fn index_document(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -190,6 +196,7 @@ pub async fn index_document(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
+// Replaces all fields of an existing search document with the provided values
 pub async fn update_document(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -265,6 +272,7 @@ pub async fn update_document(
     Ok(Json(updated))
 }
 
+// Deletes an indexed document by ID, returning 204 on success or 404 if not found
 pub async fn delete_document(
     headers: HeaderMap,
     Path(id): Path<String>,

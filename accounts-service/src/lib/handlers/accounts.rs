@@ -17,6 +17,7 @@ use crate::{
     AppState,
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
@@ -29,6 +30,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
@@ -37,10 +39,12 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Checks whether a status string is one of the accepted account status values
 fn validate_status(status: &str) -> bool {
     VALID_STATUSES.contains(&status)
 }
 
+// Lists accounts with optional status and name-search filters, returning a paginated response
 pub async fn list_accounts(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -164,6 +168,7 @@ pub async fn list_accounts(
     .into_response()
 }
 
+// Fetches a single account by ID, returning 404 if it does not exist
 pub async fn get_account(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -193,6 +198,7 @@ pub async fn get_account(
     }
 }
 
+// Validates and inserts a new account, returning the created record with HTTP 201
 pub async fn create_account(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -276,6 +282,7 @@ pub async fn create_account(
     (StatusCode::CREATED, Json(account)).into_response()
 }
 
+// Applies partial updates to an existing account, merging provided fields with stored values
 pub async fn update_account(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -384,6 +391,7 @@ pub async fn update_account(
     Json(updated).into_response()
 }
 
+// Deletes an account by ID, returning 204 on success or 404 if not found
 pub async fn delete_account(
     headers: HeaderMap,
     Path(id): Path<String>,

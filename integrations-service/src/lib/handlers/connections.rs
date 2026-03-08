@@ -13,6 +13,7 @@ use crate::{
     models::{ApiError, CreateConnectionRequest, IntegrationConnection, UpdateConnectionRequest},
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
@@ -22,6 +23,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -29,6 +31,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Returns all integration connections ordered by creation date descending
 pub async fn list_connections(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -53,6 +56,7 @@ pub async fn list_connections(
     Ok(Json(rows))
 }
 
+// Fetches a single integration connection by ID, returning 404 if it does not exist
 pub async fn get_connection(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -80,6 +84,7 @@ pub async fn get_connection(
     Ok(Json(row))
 }
 
+// Validates and inserts a new integration connection with status "connected", returning the created record with HTTP 201
 pub async fn create_connection(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -133,6 +138,7 @@ pub async fn create_connection(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
+// Updates the status and last_synced_at of an existing connection, merging with stored values
 pub async fn update_connection(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -217,6 +223,7 @@ pub async fn update_connection(
     Ok(Json(updated))
 }
 
+// Deletes an integration connection by ID, returning 204 on success or 404 if not found
 pub async fn delete_connection(
     headers: HeaderMap,
     Path(id): Path<String>,

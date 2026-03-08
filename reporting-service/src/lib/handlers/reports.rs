@@ -13,6 +13,7 @@ use crate::{
     models::{ApiError, CreateReportRequest, DashboardSummary, SavedReport, UpdateReportRequest},
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
@@ -22,6 +23,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -29,6 +31,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Returns a summary of saved reports including the total count and distinct metrics in use
 pub async fn get_dashboard_summary(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -63,6 +66,7 @@ pub async fn get_dashboard_summary(
     }))
 }
 
+// Returns all saved reports ordered by creation date descending
 pub async fn list_reports(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -87,6 +91,7 @@ pub async fn list_reports(
     Ok(Json(rows))
 }
 
+// Fetches a single saved report by ID, returning 404 if it does not exist
 pub async fn get_report(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -114,6 +119,7 @@ pub async fn get_report(
     Ok(Json(row))
 }
 
+// Validates and inserts a new saved report, returning the created record with HTTP 201
 pub async fn create_report(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -175,6 +181,7 @@ pub async fn create_report(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
+// Applies partial updates to an existing saved report, merging provided fields with stored values
 pub async fn update_report(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -283,6 +290,7 @@ pub async fn update_report(
     Ok(Json(updated))
 }
 
+// Deletes a saved report by ID, returning 204 on success or 404 if not found
 pub async fn delete_report(
     headers: HeaderMap,
     Path(id): Path<String>,

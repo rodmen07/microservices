@@ -9,6 +9,7 @@ use crate::handlers::{
     workflows::{create_workflow, delete_workflow, get_workflow, list_workflows, update_workflow},
 };
 
+// Builds a CORS layer from the ALLOWED_ORIGINS env var, permissive for "*", restrictive for a list, or blocking if unset
 pub fn build_cors_layer() -> CorsLayer {
     let origins = env::var("ALLOWED_ORIGINS").unwrap_or_default();
     if origins.trim() == "*" {
@@ -25,6 +26,7 @@ pub fn build_cors_layer() -> CorsLayer {
     CorsLayer::new().allow_origin(allowed)
 }
 
+// Assembles the full Axum router with all workflow routes, CORS, and tracing middleware
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))

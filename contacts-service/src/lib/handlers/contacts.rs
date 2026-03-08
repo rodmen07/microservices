@@ -19,6 +19,7 @@ use crate::{
     AppState,
 };
 
+// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
@@ -31,6 +32,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
+// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
@@ -39,6 +41,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Checks whether a lifecycle stage string is one of the accepted values
 fn validate_lifecycle_stage(stage: &str) -> bool {
     VALID_LIFECYCLE_STAGES.contains(&stage)
 }
@@ -72,6 +75,7 @@ async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header:
     }
 }
 
+// Lists contacts with optional account, lifecycle stage, and name/email search filters, returning a paginated response
 pub async fn list_contacts(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -165,6 +169,7 @@ pub async fn list_contacts(
     .into_response()
 }
 
+// Fetches a single contact by ID, returning 404 if it does not exist
 pub async fn get_contact(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -191,6 +196,7 @@ pub async fn get_contact(
     }
 }
 
+// Validates and inserts a new contact, optionally verifying the account_id against the accounts service
 pub async fn create_contact(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -310,6 +316,7 @@ pub async fn create_contact(
     (StatusCode::CREATED, Json(contact)).into_response()
 }
 
+// Applies partial updates to an existing contact, with optional account re-validation
 pub async fn update_contact(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -475,6 +482,7 @@ pub async fn update_contact(
     Json(updated).into_response()
 }
 
+// Deletes a contact by ID, returning 204 on success or 404 if not found
 pub async fn delete_contact(
     headers: HeaderMap,
     Path(id): Path<String>,
