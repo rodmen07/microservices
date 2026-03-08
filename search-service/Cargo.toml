@@ -3,6 +3,9 @@ name = "search-service"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [lib]
 name = "search_service"
 path = "src/lib.rs"
@@ -21,7 +24,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-jsonwebtoken = "8.3.0"
+jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["clock"] }
 
 [dev-dependencies]

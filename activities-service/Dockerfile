@@ -1,11 +1,13 @@
-FROM rust:1.82-slim AS builder
+FROM rust:latest AS builder
 WORKDIR /app
-COPY Cargo.toml ./
-COPY src ./src
-RUN cargo build --release
+COPY . .
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
+    && sqlite3 /tmp/build.db < activities-service/migrations/0001_create_activities.sql \
+    && DATABASE_URL=sqlite:////tmp/build.db cargo build --release -p activities-service
 
 FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/activities-service /usr/local/bin/activities-service
-EXPOSE 3013
+EXPOSE 8080
 CMD ["activities-service"]

@@ -304,7 +304,7 @@ pub async fn update_account(
     };
 
     let name = match body.name.as_deref().map(str::trim) {
-        Some(n) if n.is_empty() => {
+        Some("") => {
             return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "name cannot be empty")
         }
         Some(n) => n.to_string(),
