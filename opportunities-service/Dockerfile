@@ -1,19 +1,13 @@
 FROM rust:latest AS builder
-
-RUN apt-get update && apt-get install -y sqlite3 && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 COPY . .
-
-# Create a local SQLite DB from migrations so sqlx macros can validate queries
-RUN cat opportunities-service/migrations/*.sql | sqlite3 /tmp/build.db && \
-    DATABASE_URL="sqlite:////tmp/build.db" cargo build --release -p opportunities-service
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
+    && sqlite3 /tmp/build.db < opportunities-service/migrations/0001_create_opportunities.sql \
+    && DATABASE_URL=sqlite:////tmp/build.db cargo build --release -p opportunities-service
 
 FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 COPY --from=builder /app/target/release/opportunities-service /usr/local/bin/opportunities-service
-
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && touch /data/opportunities.db && opportunities-service"]
+CMD ["opportunities-service"]

@@ -1,19 +1,13 @@
 FROM rust:latest AS builder
-
-RUN apt-get update && apt-get install -y sqlite3 && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 COPY . .
-
-# Create a local SQLite DB from migrations so sqlx macros can validate queries
-RUN cat automation-service/migrations/*.sql | sqlite3 /tmp/build.db && \
-    DATABASE_URL="sqlite:////tmp/build.db" cargo build --release -p automation-service
+RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
+    && sqlite3 /tmp/build.db < automation-service/migrations/0001_create_workflows.sql \
+    && DATABASE_URL=sqlite:////tmp/build.db cargo build --release -p automation-service
 
 FROM debian:bookworm-slim
-
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 COPY --from=builder /app/target/release/automation-service /usr/local/bin/automation-service
-
 EXPOSE 8080
-CMD ["sh", "-c", "mkdir -p /data && touch /data/automation.db && automation-service"]
+CMD ["automation-service"]
