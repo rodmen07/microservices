@@ -220,3 +220,179 @@ async fn delete_workflow() {
         .unwrap();
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn get_workflow_found() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/workflows")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"name": "Find Me", "trigger_event": "x", "action_type": "y"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let id = body_json(create_resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/workflows/{id}"))
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Find Me");
+}
+
+#[tokio::test]
+async fn get_workflow_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn create_workflow_missing_required_fields_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/workflows")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"name": "", "trigger_event": "x", "action_type": "y"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn update_workflow_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(json!({"enabled": true}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn update_workflow_empty_name_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/workflows")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"name": "Valid", "trigger_event": "a", "action_type": "b"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let id = body_json(create_resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/workflows/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(json!({"name": "  "}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn delete_workflow_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn invalid_auth_token_is_401() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workflows")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}

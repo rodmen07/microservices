@@ -27,6 +27,10 @@ uuid = { version = "1", features = ["v4", "serde"] }
 jsonwebtoken = "8.3.0"
 chrono = { version = "0.4", features = ["clock"] }
 
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
 [profile.release]
 lto = true
 codegen-units = 1
