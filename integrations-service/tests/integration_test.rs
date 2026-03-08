@@ -1,12 +1,12 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 
-use integrations_service::{AppState, build_router};
+use integrations_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
     let state = AppState::from_database_url("sqlite::memory:")
@@ -16,7 +16,7 @@ async fn test_app() -> axum::Router {
 }
 
 fn make_jwt() -> String {
-    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
     let claims = json!({
@@ -45,7 +45,12 @@ async fn body_json(body: Body) -> Value {
 async fn health_returns_ok() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -141,7 +146,8 @@ async fn update_connection_status() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, &auth)
                 .body(Body::from(
-                    json!({"status": "error", "last_synced_at": "2025-01-01T00:00:00Z"}).to_string(),
+                    json!({"status": "error", "last_synced_at": "2025-01-01T00:00:00Z"})
+                        .to_string(),
                 ))
                 .unwrap(),
         )

@@ -1,8 +1,8 @@
 use axum::{
-    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
@@ -42,7 +42,13 @@ pub async fn list_connections(
     )
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(rows))
 }
@@ -62,10 +68,14 @@ pub async fn get_connection(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
-    .ok_or_else(|| {
-        error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found")
-    })?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found"))?;
 
     Ok(Json(row))
 }
@@ -112,7 +122,13 @@ pub async fn create_connection(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -133,10 +149,14 @@ pub async fn update_connection(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
-    .ok_or_else(|| {
-        error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found")
-    })?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found"))?;
 
     let status = match req.status {
         Some(v) => {
@@ -170,7 +190,13 @@ pub async fn update_connection(
     )
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let updated = sqlx::query_as!(
         IntegrationConnection,
@@ -180,7 +206,13 @@ pub async fn update_connection(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(updated))
 }
@@ -195,7 +227,13 @@ pub async fn delete_connection(
     let result = sqlx::query!("DELETE FROM connections WHERE id = ?", id)
         .execute(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

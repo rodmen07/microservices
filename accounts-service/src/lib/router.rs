@@ -1,15 +1,18 @@
 use std::env;
 
 use axum::{
-    Router,
     http::{HeaderValue, Method},
     routing::get,
+    Router,
 };
-use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 
 use crate::{
-    AppState,
     handlers::{accounts, health},
+    AppState,
 };
 
 fn build_cors_layer() -> CorsLayer {
@@ -24,13 +27,25 @@ fn build_cors_layer() -> CorsLayer {
 
     if origins.is_empty() {
         return CorsLayer::new()
-            .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
             .allow_headers(Any);
     }
 
     CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers(Any)
 }
 

@@ -1,20 +1,20 @@
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    AppState,
     auth::validate_authorization_header,
     models::{
         Account, ApiError, CreateAccountRequest, ListAccountsQuery, ListAccountsResponse,
         UpdateAccountRequest, VALID_STATUSES,
     },
+    AppState,
 };
 
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
@@ -30,13 +30,11 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
-    let header_value = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok());
+    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
-    validate_authorization_header(header_value).map(|_| ()).map_err(|err| {
-        error_response(StatusCode::UNAUTHORIZED, err.code(), err.message())
-    })
+    validate_authorization_header(header_value)
+        .map(|_| ())
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
 fn validate_status(status: &str) -> bool {
@@ -91,12 +89,11 @@ pub async fn list_accounts(
             .bind(offset)
             .fetch_all(&state.pool)
             .await;
-            let total = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM accounts WHERE status = ?",
-            )
-            .bind(status)
-            .fetch_one(&state.pool)
-            .await;
+            let total =
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE status = ?")
+                    .bind(status)
+                    .fetch_one(&state.pool)
+                    .await;
             (rows, total)
         }
         (None, Some(q)) => {
@@ -111,12 +108,11 @@ pub async fn list_accounts(
             .bind(offset)
             .fetch_all(&state.pool)
             .await;
-            let total = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM accounts WHERE name LIKE ?",
-            )
-            .bind(&pattern)
-            .fetch_one(&state.pool)
-            .await;
+            let total =
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE name LIKE ?")
+                    .bind(&pattern)
+                    .fetch_one(&state.pool)
+                    .await;
             (rows, total)
         }
         (None, None) => {
@@ -128,10 +124,9 @@ pub async fn list_accounts(
             .bind(offset)
             .fetch_all(&state.pool)
             .await;
-            let total =
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts")
-                    .fetch_one(&state.pool)
-                    .await;
+            let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts")
+                .fetch_one(&state.pool)
+                .await;
             (rows, total)
         }
     };
@@ -189,7 +184,11 @@ pub async fn get_account(
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "account not found"),
         Err(e) => {
             tracing::error!("get_account db error: {e}");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
         }
     }
 }
@@ -205,7 +204,11 @@ pub async fn create_account(
 
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "name is required");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "name is required",
+        );
     }
 
     let status = body
@@ -305,7 +308,11 @@ pub async fn update_account(
 
     let name = match body.name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "name cannot be empty")
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "name cannot be empty",
+            )
         }
         Some(n) => n.to_string(),
         None => existing.name.clone(),
@@ -314,7 +321,11 @@ pub async fn update_account(
     let domain = match &body.domain {
         Some(d) => {
             let trimmed = d.trim();
-            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
         }
         None => existing.domain.clone(),
     };
@@ -391,7 +402,11 @@ pub async fn delete_account(
         Ok(_) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "account not found"),
         Err(e) => {
             tracing::error!("delete_account db error: {e}");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
         }
     }
 }

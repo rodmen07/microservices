@@ -1,6 +1,9 @@
 use std::str::FromStr;
 
-use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqlitePoolOptions}};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 
 #[derive(Clone)]
 pub struct AppState {

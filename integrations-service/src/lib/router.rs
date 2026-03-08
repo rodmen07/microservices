@@ -1,6 +1,6 @@
 use std::env;
 
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::app_state::AppState;

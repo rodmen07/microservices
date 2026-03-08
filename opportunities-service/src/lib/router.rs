@@ -1,15 +1,15 @@
 use std::env;
 
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::app_state::AppState;
 use crate::handlers::{
+    health::health,
     opportunities::{
         create_opportunity, delete_opportunity, get_opportunity, list_opportunities,
         update_opportunity,
     },
-    health::health,
 };
 
 pub fn build_cors_layer() -> CorsLayer {

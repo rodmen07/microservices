@@ -1,12 +1,12 @@
 use std::env;
 
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::app_state::AppState;
 use crate::handlers::{
-    workflows::{create_workflow, delete_workflow, get_workflow, list_workflows, update_workflow},
     health::health,
+    workflows::{create_workflow, delete_workflow, get_workflow, list_workflows, update_workflow},
 };
 
 pub fn build_cors_layer() -> CorsLayer {
@@ -35,7 +35,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/workflows/{id}",
-            get(get_workflow).patch(update_workflow).delete(delete_workflow),
+            get(get_workflow)
+                .patch(update_workflow)
+                .delete(delete_workflow),
         )
         .with_state(state)
         .layer(build_cors_layer())

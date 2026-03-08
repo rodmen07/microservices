@@ -1,6 +1,6 @@
 use std::{env, net::SocketAddr};
 
-use opportunities_service::{AppState, build_router};
+use opportunities_service::{build_router, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -16,8 +16,8 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(3012);
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://opportunities.db".to_string());
+    let database_url =
+        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://opportunities.db".to_string());
 
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()

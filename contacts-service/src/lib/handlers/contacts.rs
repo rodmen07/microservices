@@ -1,22 +1,22 @@
 use std::env;
 
 use axum::{
-    Json,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    AppState,
     auth::validate_authorization_header,
     models::{
         ApiError, Contact, CreateContactRequest, ListContactsQuery, ListContactsResponse,
         UpdateContactRequest, VALID_LIFECYCLE_STAGES,
     },
+    AppState,
 };
 
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
@@ -32,9 +32,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
-    let header_value = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok());
+    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
     validate_authorization_header(header_value)
         .map(|_| ())
@@ -54,7 +52,11 @@ async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header:
         Err(_) => return true, // fail-open: no accounts service configured
     };
 
-    let url = format!("{}/api/v1/accounts/{}", base_url.trim_end_matches('/'), account_id);
+    let url = format!(
+        "{}/api/v1/accounts/{}",
+        base_url.trim_end_matches('/'),
+        account_id
+    );
 
     match client
         .get(&url)
@@ -134,7 +136,11 @@ pub async fn list_contacts(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("list_contacts db error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     };
 
@@ -142,7 +148,11 @@ pub async fn list_contacts(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("list_contacts count error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     };
 
@@ -194,10 +204,18 @@ pub async fn create_contact(
     let last_name = body.last_name.trim().to_string();
 
     if first_name.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "first_name is required");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "first_name is required",
+        );
     }
     if last_name.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "last_name is required");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "last_name is required",
+        );
     }
 
     let lifecycle_stage = body
@@ -220,7 +238,11 @@ pub async fn create_contact(
     }
 
     // Validate account_id exists in the accounts service (if provided).
-    let account_id = body.account_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let account_id = body
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     if let Some(aid) = account_id {
         let auth_header = headers
             .get("Authorization")
@@ -235,8 +257,18 @@ pub async fn create_contact(
         }
     }
 
-    let email = body.email.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
-    let phone = body.phone.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let email = body
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let phone = body
+        .phone
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
@@ -306,7 +338,11 @@ pub async fn update_contact(
 
     let first_name = match body.first_name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "first_name cannot be empty")
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "first_name cannot be empty",
+            )
         }
         Some(n) => n.to_string(),
         None => existing.first_name.clone(),
@@ -314,7 +350,11 @@ pub async fn update_contact(
 
     let last_name = match body.last_name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "last_name cannot be empty")
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "last_name cannot be empty",
+            )
         }
         Some(n) => n.to_string(),
         None => existing.last_name.clone(),
@@ -371,7 +411,11 @@ pub async fn update_contact(
     let email = match &body.email {
         Some(e) => {
             let t = e.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         }
         None => existing.email.clone(),
     };
@@ -379,7 +423,11 @@ pub async fn update_contact(
     let phone = match &body.phone {
         Some(p) => {
             let t = p.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         }
         None => existing.phone.clone(),
     };
@@ -404,7 +452,11 @@ pub async fn update_contact(
         Ok(_) => {}
         Err(e) => {
             tracing::error!("update_contact db error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     }
 
@@ -441,7 +493,11 @@ pub async fn delete_contact(
         Ok(_) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("delete_contact db error: {e}");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::env;
 
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 
 pub const AUTH_HEADER: &str = "Authorization";
@@ -103,8 +103,8 @@ pub fn validate_authorization_header(header_value: Option<&str>) -> Result<AuthC
     validation.set_issuer(&[auth_issuer()]);
 
     let key = decoding_key(algorithm)?;
-    let token_data = decode::<AuthClaims>(token, &key, &validation)
-        .map_err(|_| AuthError::InvalidToken)?;
+    let token_data =
+        decode::<AuthClaims>(token, &key, &validation).map_err(|_| AuthError::InvalidToken)?;
 
     Ok(token_data.claims)
 }

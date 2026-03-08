@@ -1,6 +1,6 @@
 use std::{env, net::SocketAddr};
 
-use accounts_service::{AppState, build_router};
+use accounts_service::{build_router, AppState};
 
 #[tokio::main]
 async fn main() {

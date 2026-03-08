@@ -1,8 +1,8 @@
 use axum::{
-    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
@@ -38,12 +38,24 @@ pub async fn get_dashboard_summary(
     let count_row = sqlx::query!("SELECT COUNT(*) as cnt FROM reports")
         .fetch_one(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     let metric_rows = sqlx::query!("SELECT DISTINCT metric FROM reports ORDER BY metric")
         .fetch_all(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     Ok(Json(DashboardSummary {
         active_reports: count_row.cnt,
@@ -64,7 +76,13 @@ pub async fn list_reports(
     )
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(rows))
 }
@@ -84,7 +102,13 @@ pub async fn get_report(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "report not found"))?;
 
     Ok(Json(row))
@@ -124,7 +148,13 @@ pub async fn create_report(
     )
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let created = sqlx::query_as!(
         SavedReport,
@@ -134,7 +164,13 @@ pub async fn create_report(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -155,7 +191,13 @@ pub async fn update_report(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "report not found"))?;
 
     let name = match req.name {
@@ -214,7 +256,13 @@ pub async fn update_report(
     )
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let updated = sqlx::query_as!(
         SavedReport,
@@ -224,7 +272,13 @@ pub async fn update_report(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(updated))
 }
@@ -239,7 +293,13 @@ pub async fn delete_report(
     let result = sqlx::query!("DELETE FROM reports WHERE id = ?", id)
         .execute(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

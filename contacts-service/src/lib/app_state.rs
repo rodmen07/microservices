@@ -1,6 +1,9 @@
 use std::str::FromStr;
 
-use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqlitePoolOptions}};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,7 +23,11 @@ impl AppState {
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         let http_client = reqwest::Client::builder()
-            .user_agent(concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
             .timeout(std::time::Duration::from_secs(5))
             .build()
             .expect("failed to build HTTP client");

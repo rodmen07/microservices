@@ -1,8 +1,8 @@
 use axum::{
-    Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
@@ -44,7 +44,13 @@ pub async fn list_activities(
     )
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(rows))
 }
@@ -65,7 +71,13 @@ pub async fn get_activity(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))?;
 
     Ok(Json(row))
@@ -119,7 +131,13 @@ pub async fn create_activity(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -142,7 +160,13 @@ pub async fn update_activity(
     )
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))?;
 
     let activity_type = match req.activity_type {
@@ -175,8 +199,18 @@ pub async fn update_activity(
         None => existing.subject.clone(),
     };
 
-    let notes = req.notes.as_deref().map(str::trim).map(str::to_string).or(existing.notes);
-    let due_at = req.due_at.as_deref().map(str::trim).map(str::to_string).or(existing.due_at);
+    let notes = req
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
+        .or(existing.notes);
+    let due_at = req
+        .due_at
+        .as_deref()
+        .map(str::trim)
+        .map(str::to_string)
+        .or(existing.due_at);
     let completed = req.completed.unwrap_or(existing.completed);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
@@ -193,7 +227,13 @@ pub async fn update_activity(
     )
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let updated = sqlx::query_as!(
         Activity,
@@ -204,7 +244,13 @@ pub async fn update_activity(
     )
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(updated))
 }
@@ -219,7 +265,13 @@ pub async fn delete_activity(
     let result = sqlx::query!("DELETE FROM activities WHERE id = ?", id)
         .execute(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

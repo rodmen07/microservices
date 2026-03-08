@@ -1,6 +1,6 @@
 use std::env;
 
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::app_state::AppState;
@@ -39,7 +39,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/search/documents/{id}",
-            get(get_document).patch(update_document).delete(delete_document),
+            get(get_document)
+                .patch(update_document)
+                .delete(delete_document),
         )
         .with_state(state)
         .layer(build_cors_layer())

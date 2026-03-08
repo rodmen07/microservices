@@ -1,11 +1,13 @@
 use std::env;
 
-use axum::{Router, routing::get};
+use axum::{routing::get, Router};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::app_state::AppState;
 use crate::handlers::{
-    activities::{create_activity, delete_activity, get_activity, list_activities, update_activity},
+    activities::{
+        create_activity, delete_activity, get_activity, list_activities, update_activity,
+    },
     health::health,
 };
 
@@ -35,7 +37,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/activities/{id}",
-            get(get_activity).patch(update_activity).delete(delete_activity),
+            get(get_activity)
+                .patch(update_activity)
+                .delete(delete_activity),
         )
         .with_state(state)
         .layer(build_cors_layer())

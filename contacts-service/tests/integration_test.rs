@@ -1,12 +1,12 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 
-use contacts_service::{AppState, build_router};
+use contacts_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
     let state = AppState::from_database_url("sqlite::memory:")
@@ -16,7 +16,7 @@ async fn test_app() -> axum::Router {
 }
 
 fn make_jwt() -> String {
-    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     let claims = json!({
         "sub": "test-user",
         "iss": "auth-service",
@@ -43,7 +43,12 @@ async fn body_json(body: Body) -> Value {
 async fn health_returns_ok() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -57,7 +62,12 @@ async fn health_returns_ok() {
 async fn list_contacts_requires_auth() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/api/v1/contacts").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/contacts")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);

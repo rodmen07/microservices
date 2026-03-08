@@ -1,12 +1,12 @@
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tower::ServiceExt;
 
-use accounts_service::{AppState, build_router};
+use accounts_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
     let state = AppState::from_database_url("sqlite::memory:")
@@ -16,7 +16,7 @@ async fn test_app() -> axum::Router {
 }
 
 fn make_jwt() -> String {
-    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     let claims = json!({
         "sub": "test-user",
         "iss": "auth-service",
@@ -43,7 +43,12 @@ async fn body_json(body: Body) -> Value {
 async fn health_returns_ok() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -57,7 +62,12 @@ async fn health_returns_ok() {
 async fn list_accounts_requires_auth() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/api/v1/accounts").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/accounts")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -549,8 +559,18 @@ async fn list_accounts_pagination_limit_and_offset() {
     assert_eq!(page1["offset"], 0);
     assert_eq!(page2["offset"], 2);
     // No overlap between pages
-    let p1_ids: Vec<_> = page1["data"].as_array().unwrap().iter().map(|a| &a["id"]).collect();
-    let p2_ids: Vec<_> = page2["data"].as_array().unwrap().iter().map(|a| &a["id"]).collect();
+    let p1_ids: Vec<_> = page1["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| &a["id"])
+        .collect();
+    let p2_ids: Vec<_> = page2["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| &a["id"])
+        .collect();
     assert!(p1_ids.iter().all(|id| !p2_ids.contains(id)));
 }
 
