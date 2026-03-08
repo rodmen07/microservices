@@ -232,3 +232,261 @@ async fn delete_document() {
         .unwrap();
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn list_documents_returns_array() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "note",
+                        "entity_id": "note-001",
+                        "title": "List Test",
+                        "body": "Body of the list test document"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search/documents")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp.into_body()).await;
+    let arr = body.as_array().unwrap();
+    assert!(arr.iter().any(|d| d["entity_id"] == "note-001"));
+}
+
+#[tokio::test]
+async fn get_document_found() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let index_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "task",
+                        "entity_id": "task-get",
+                        "title": "Get This",
+                        "body": "Body text"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let id = body_json(index_resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/search/documents/{id}"))
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["id"], id);
+    assert_eq!(body["title"], "Get This");
+}
+
+#[tokio::test]
+async fn get_document_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search/documents/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn update_document_happy_path() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let index_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "task",
+                        "entity_id": "task-upd",
+                        "title": "Old Title",
+                        "body": "Old body"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let id = body_json(index_resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let patch_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/search/documents/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "task",
+                        "entity_id": "task-upd",
+                        "title": "New Title",
+                        "body": "New body"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(patch_resp.status(), StatusCode::OK);
+    let body = body_json(patch_resp.into_body()).await;
+    assert_eq!(body["title"], "New Title");
+    assert_eq!(body["body"], "New body");
+}
+
+#[tokio::test]
+async fn update_document_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/search/documents/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "x",
+                        "entity_id": "x",
+                        "title": "x",
+                        "body": "x"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn index_document_missing_fields_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "task",
+                        "entity_id": "",
+                        "title": "No entity_id",
+                        "body": "some body"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
+async fn search_with_empty_q_returns_empty() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?q=")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn invalid_auth_token_is_401() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?q=test")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
