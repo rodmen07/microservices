@@ -304,7 +304,7 @@ async fn create_activity_missing_required_fields_is_422() {
                 .uri("/api/v1/activities")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, &auth)
-                .body(Body::from(json!({"activity_type": ""}).to_string()))
+                .body(Body::from(json!({"activity_type": "", "subject": ""}).to_string()))
                 .unwrap(),
         )
         .await
