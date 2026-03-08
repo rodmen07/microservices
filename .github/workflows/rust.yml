@@ -77,9 +77,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run security audit
+        # RUSTSEC-2023-0071: rsa Marvin Attack — no patch available in rsa 0.9.x.
+        # All services default to HS256; RSA is only used for token verification
+        # on controlled infrastructure. Risk accepted until upstream ships a fix.
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
   # ─── Deploy to Fly.io (main branch only) ────────────────────────────────────
   #
