@@ -3,6 +3,9 @@ name = "opportunities-service"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [lib]
 name = "opportunities_service"
 path = "src/lib.rs"
