@@ -305,7 +305,7 @@ pub async fn update_contact(
     };
 
     let first_name = match body.first_name.as_deref().map(str::trim) {
-        Some(n) if n.is_empty() => {
+        Some("") => {
             return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "first_name cannot be empty")
         }
         Some(n) => n.to_string(),
@@ -313,7 +313,7 @@ pub async fn update_contact(
     };
 
     let last_name = match body.last_name.as_deref().map(str::trim) {
-        Some(n) if n.is_empty() => {
+        Some("") => {
             return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "last_name cannot be empty")
         }
         Some(n) => n.to_string(),
