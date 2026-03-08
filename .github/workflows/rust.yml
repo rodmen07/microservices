@@ -1,22 +1,123 @@
-name: Rust
+name: CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  # ─── Lint & test ────────────────────────────────────────────────────────────
+  test:
+    name: Lint and test
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install sqlite3
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends sqlite3
+
+      # Services using sqlx compile-time macros need a live schema at build time.
+      # We replicate the Dockerfile pattern: create a temp DB per service.
+      - name: Create test databases
+        run: |
+          sqlite3 /tmp/activities.db    < activities-service/migrations/0001_create_activities.sql
+          sqlite3 /tmp/workflows.db     < automation-service/migrations/0001_create_workflows.sql
+          sqlite3 /tmp/connections.db   < integrations-service/migrations/0001_create_connections.sql
+          sqlite3 /tmp/opportunities.db < opportunities-service/migrations/0001_create_opportunities.sql
+          sqlite3 /tmp/reports.db       < reporting-service/migrations/0001_create_reports.sql
+          sqlite3 /tmp/documents.db     < search-service/migrations/0001_create_search_documents.sql
+
+      # Clippy for sqlx-macro services — each needs its own DATABASE_URL
+      - name: Clippy — sqlx-macro services
+        run: |
+          DATABASE_URL=sqlite:////tmp/activities.db    cargo clippy -p activities-service    -- -D warnings
+          DATABASE_URL=sqlite:////tmp/workflows.db     cargo clippy -p automation-service    -- -D warnings
+          DATABASE_URL=sqlite:////tmp/connections.db   cargo clippy -p integrations-service  -- -D warnings
+          DATABASE_URL=sqlite:////tmp/opportunities.db cargo clippy -p opportunities-service -- -D warnings
+          DATABASE_URL=sqlite:////tmp/reports.db       cargo clippy -p reporting-service     -- -D warnings
+          DATABASE_URL=sqlite:////tmp/documents.db     cargo clippy -p search-service        -- -D warnings
+
+      # accounts-service and contacts-service use runtime sqlx queries — no DB needed at compile time
+      - name: Clippy — runtime-query services
+        run: cargo clippy -p accounts-service -p contacts-service -- -D warnings
+
+      # Run tests per-service so each gets the right DATABASE_URL
+      - name: Test — sqlx-macro services
+        run: |
+          DATABASE_URL=sqlite:////tmp/activities.db    cargo test -p activities-service
+          DATABASE_URL=sqlite:////tmp/workflows.db     cargo test -p automation-service
+          DATABASE_URL=sqlite:////tmp/connections.db   cargo test -p integrations-service
+          DATABASE_URL=sqlite:////tmp/opportunities.db cargo test -p opportunities-service
+          DATABASE_URL=sqlite:////tmp/reports.db       cargo test -p reporting-service
+          DATABASE_URL=sqlite:////tmp/documents.db     cargo test -p search-service
+
+      - name: Test — runtime-query services
+        run: cargo test -p accounts-service -p contacts-service
+
+  # ─── Dependency security audit ──────────────────────────────────────────────
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Deploy to Fly.io (main branch only) ────────────────────────────────────
+  #
+  # Requires: FLY_API_TOKEN secret set in GitHub → Settings → Secrets.
+  # Obtain via: fly tokens create deploy -x 999999h
+  #
+  # All 8 services deploy in parallel after tests pass.
+  # Fly's Depot builder caches layers, so unchanged services complete in ~30s.
+  deploy:
+    name: Deploy ${{ matrix.service }}
+    needs: [test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # one service failing doesn't abort the others
+      matrix:
+        include:
+          - service: accounts-service
+            fly_config: accounts-service/fly.toml
+          - service: contacts-service
+            fly_config: contacts-service/fly.toml
+          - service: activities-service
+            fly_config: activities-service/fly.toml
+          - service: automation-service
+            fly_config: automation-service/fly.toml
+          - service: integrations-service
+            fly_config: integrations-service/fly.toml
+          - service: opportunities-service
+            fly_config: opportunities-service/fly.toml
+          - service: reporting-service
+            fly_config: reporting-service/fly.toml
+          - service: search-service
+            fly_config: search-service/fly.toml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy ${{ matrix.service }}
+        run: fly deploy -c ${{ matrix.fly_config }} --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
