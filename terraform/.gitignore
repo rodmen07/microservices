@@ -1,0 +1,11 @@
+# Terraform state (contains secrets — never commit)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Actual variable values (contains secrets)
+terraform.tfvars
+
+# Crash logs
+crash.log

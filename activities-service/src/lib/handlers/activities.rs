@@ -13,17 +13,18 @@ use crate::{
     models::{Activity, ApiError, CreateActivityRequest, UpdateActivityRequest},
 };
 
-// Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
-    let body = Json(ApiError {
-        code: code.to_string(),
-        message: message.to_string(),
-        details: None,
-    });
-    (status, body).into_response()
+    (
+        status,
+        Json(ApiError {
+            code: code.to_string(),
+            message: message.to_string(),
+            details: None,
+        }),
+    )
+        .into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
 fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
@@ -31,19 +32,16 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
-// Returns all activities ordered by creation date descending
 pub async fn list_activities(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Activity>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        Activity,
+    let rows = sqlx::query_as::<_, Activity>(
         "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed as \"completed: bool\", created_at, updated_at
-         FROM activities
-         ORDER BY created_at DESC"
+                completed, created_at, updated_at
+         FROM activities ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -58,7 +56,6 @@ pub async fn list_activities(
     Ok(Json(rows))
 }
 
-// Fetches a single activity by ID, returning 404 if it does not exist
 pub async fn get_activity(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -66,13 +63,12 @@ pub async fn get_activity(
 ) -> Result<Json<Activity>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        Activity,
+    sqlx::query_as::<_, Activity>(
         "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed as \"completed: bool\", created_at, updated_at
-         FROM activities WHERE id = ?",
-        id
+                completed, created_at, updated_at
+         FROM activities WHERE id = $1",
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -82,12 +78,10 @@ pub async fn get_activity(
             "database error",
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))?;
-
-    Ok(Json(row))
+    .map(Json)
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))
 }
 
-// Validates and inserts a new activity, returning the created record with HTTP 201
 pub async fn create_activity(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -109,31 +103,30 @@ pub async fn create_activity(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO activities
             (id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
-        id,
-        req.account_id,
-        req.contact_id,
-        activity_type,
-        subject,
-        req.notes,
-        req.due_at,
-        now,
-        now,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9)",
     )
+    .bind(&id)
+    .bind(&req.account_id)
+    .bind(&req.contact_id)
+    .bind(&activity_type)
+    .bind(&subject)
+    .bind(&req.notes)
+    .bind(&req.due_at)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as!(
-        Activity,
+    let created = sqlx::query_as::<_, Activity>(
         "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed as \"completed: bool\", created_at, updated_at
-         FROM activities WHERE id = ?",
-        id
+                completed, created_at, updated_at
+         FROM activities WHERE id = $1",
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -147,7 +140,6 @@ pub async fn create_activity(
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
-// Applies partial updates to an existing activity, merging provided fields with stored values
 pub async fn update_activity(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -156,14 +148,12 @@ pub async fn update_activity(
 ) -> Result<Json<Activity>, Response> {
     require_auth(&headers)?;
 
-    // Verify exists
-    let existing = sqlx::query_as!(
-        Activity,
+    let existing = sqlx::query_as::<_, Activity>(
         "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed as \"completed: bool\", created_at, updated_at
-         FROM activities WHERE id = ?",
-        id
+                completed, created_at, updated_at
+         FROM activities WHERE id = $1",
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -220,17 +210,17 @@ pub async fn update_activity(
     let completed = req.completed.unwrap_or(existing.completed);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
-        "UPDATE activities SET activity_type = ?, subject = ?, notes = ?, due_at = ?,
-         completed = ?, updated_at = ? WHERE id = ?",
-        activity_type,
-        subject,
-        notes,
-        due_at,
-        completed,
-        now,
-        id
+    sqlx::query(
+        "UPDATE activities SET activity_type = $1, subject = $2, notes = $3, due_at = $4,
+         completed = $5, updated_at = $6 WHERE id = $7",
     )
+    .bind(&activity_type)
+    .bind(&subject)
+    .bind(&notes)
+    .bind(&due_at)
+    .bind(completed)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| {
@@ -241,13 +231,12 @@ pub async fn update_activity(
         )
     })?;
 
-    let updated = sqlx::query_as!(
-        Activity,
+    let updated = sqlx::query_as::<_, Activity>(
         "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed as \"completed: bool\", created_at, updated_at
-         FROM activities WHERE id = ?",
-        id
+                completed, created_at, updated_at
+         FROM activities WHERE id = $1",
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -261,7 +250,6 @@ pub async fn update_activity(
     Ok(Json(updated))
 }
 
-// Deletes an activity by ID, returning 204 on success or 404 if not found
 pub async fn delete_activity(
     headers: HeaderMap,
     Path(id): Path<String>,
@@ -269,7 +257,8 @@ pub async fn delete_activity(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM activities WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM activities WHERE id = $1")
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {

@@ -38,11 +38,10 @@ pub async fn list_opportunities(
 ) -> Result<Json<Vec<Opportunity>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        Opportunity,
-        "SELECT id, account_id, name, stage, amount as \"amount: f64\",
+    let rows = sqlx::query_as::<_, Opportunity>(
+        "SELECT id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
-         FROM opportunities ORDER BY created_at DESC"
+         FROM opportunities ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -65,13 +64,12 @@ pub async fn get_opportunity(
 ) -> Result<Json<Opportunity>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        Opportunity,
-        "SELECT id, account_id, name, stage, amount as \"amount: f64\",
+    let row = sqlx::query_as::<_, Opportunity>(
+        "SELECT id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -122,29 +120,28 @@ pub async fn create_opportunity(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO opportunities (id, account_id, name, stage, amount, close_date, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        id,
-        req.account_id,
-        name,
-        stage,
-        amount,
-        req.close_date,
-        now,
-        now,
     )
+    .bind(&id)
+    .bind(&req.account_id)
+    .bind(&name)
+    .bind(&stage)
+    .bind(amount)
+    .bind(&req.close_date)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as!(
-        Opportunity,
-        "SELECT id, account_id, name, stage, amount as \"amount: f64\",
+    let created = sqlx::query_as::<_, Opportunity>(
+        "SELECT id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -167,13 +164,12 @@ pub async fn update_opportunity(
 ) -> Result<Json<Opportunity>, Response> {
     require_auth(&headers)?;
 
-    let existing = sqlx::query_as!(
-        Opportunity,
-        "SELECT id, account_id, name, stage, amount as \"amount: f64\",
+    let existing = sqlx::query_as::<_, Opportunity>(
+        "SELECT id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -224,26 +220,25 @@ pub async fn update_opportunity(
         .or(existing.close_date);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "UPDATE opportunities SET name = ?, stage = ?, amount = ?, close_date = ?, updated_at = ? WHERE id = ?",
-        name,
-        stage,
-        amount,
-        close_date,
-        now,
-        id
     )
+    .bind(&name)
+    .bind(&stage)
+    .bind(amount)
+    .bind(close_date)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let updated = sqlx::query_as!(
-        Opportunity,
-        "SELECT id, account_id, name, stage, amount as \"amount: f64\",
+    let updated = sqlx::query_as::<_, Opportunity>(
+        "SELECT id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -265,7 +260,8 @@ pub async fn delete_opportunity(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM opportunities WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM opportunities WHERE id = ?")
+        .bind(id)
         .execute(&state.pool)
         .await
         .map_err(|_| {

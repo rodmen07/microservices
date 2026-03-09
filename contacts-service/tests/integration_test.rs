@@ -8,10 +8,18 @@ use tower::ServiceExt;
 
 use contacts_service::{build_router, AppState};
 
+fn test_database_url() -> String {
+    std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect(
+            "set TEST_DATABASE_URL (or DATABASE_URL) to a Postgres test database URL before running integration tests",
+        )
+}
+
 async fn test_app() -> axum::Router {
-    let state = AppState::from_database_url("sqlite::memory:")
+    let state = AppState::from_database_url(&test_database_url())
         .await
-        .expect("in-memory DB failed");
+        .expect("test database initialization failed");
     build_router(state)
 }
 

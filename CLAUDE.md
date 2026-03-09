@@ -14,7 +14,7 @@ TaskForge: a portfolio microservices system. Nine independently deployed service
 
 **Non-Rust:**
 - `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
-- `auth-service` — has a `fly.toml` but minimal implementation.
+- `auth-service` — minimal implementation.
 
 **Frontend:** `frontend-service` (React 19 + TypeScript + Vite + Tailwind v3) lives in a separate repo at `d:\Projects\microservices\frontend-service\` but is git-tracked separately (remote: `frontend-service`).
 
@@ -35,7 +35,6 @@ All production Rust services follow the `task-api-service` layout exactly. When 
 ```
 <service>/
   Cargo.toml          # see dependency versions below
-  fly.toml            # Fly.io deployment config
   migrations/
     0001_create_<table>.sql
   src/
@@ -152,7 +151,7 @@ pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> 
 - IDs are `TEXT` (UUID v4 strings), never integer autoincrement for new services.
 - Timestamps are `TEXT` in `"%Y-%m-%dT%H:%M:%SZ"` format via `chrono::Utc`.
 - `FromRow` derive on domain model structs; SELECT column order must match struct field order.
-- Default `DATABASE_URL`: `sqlite://<service-name>.db` (local) or `sqlite:///data/<service-name>.db` (Fly.io volume).
+- Default `DATABASE_URL`: `sqlite://<service-name>.db` (local).
 
 ---
 
@@ -172,15 +171,18 @@ When a service needs to validate a foreign key from another service (e.g. contac
 
 ---
 
-## Fly.io deployment
+## Google Cloud deployment
 
-Each service needs:
-- `fly.toml` with `[mounts]` pointing to `/data` (SQLite volume).
-- `DATABASE_URL = "sqlite:///data/<service>.db"` in `[env]`.
-- `PORT = "8080"` in `[env]` (Fly uses 8080 internally).
-- Health check at `/health` returning `{ "status": "ok" }`.
+CI/CD deploys Rust services to Google Cloud Run and pushes images to Artifact Registry.
 
-Secrets set via `fly secrets set AUTH_JWT_SECRET=... ALLOWED_ORIGINS=...`.
+Expected GitHub configuration:
+- Repository variable `GCP_PROJECT_ID`.
+- Repository secret `GCP_SA_KEY` (service account JSON with Artifact Registry and Cloud Run deploy permissions).
+
+Runtime configuration (service-level):
+- `PORT` is injected by Cloud Run.
+- `DATABASE_URL`, `AUTH_JWT_SECRET`, and `ALLOWED_ORIGINS` come from environment/secrets.
+- Health check endpoint remains `/health` returning `{ "status": "ok" }`.
 
 ---
 
@@ -216,5 +218,5 @@ When upgrading any of the remaining stubs, do in order:
 5. Write `models.rs`, `auth.rs` (copy verbatim), `app_state.rs`, `handlers/`, `router.rs`
 6. Rewrite `src/lib.rs` with `#[path]` declarations
 7. Rewrite `src/main.rs` to use `AppState::from_database_url` + `build_router`
-8. Add `fly.toml`
+8. Add or update Cloud Run/Terraform service configuration
 9. Update `frontend-service/public/content/roadmap.json` to mark as shipped

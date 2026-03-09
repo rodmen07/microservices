@@ -1,24 +1,17 @@
-use std::str::FromStr;
-
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
-};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub(crate) pool: SqlitePool,
+    pub(crate) pool: PgPool,
     /// HTTP client for cross-service calls (e.g. account validation).
     pub(crate) http_client: reqwest::Client,
 }
 
 impl AppState {
-    // Creates a SQLite connection pool, runs migrations, and builds an HTTP client for cross-service calls
     pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> {
-        let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
-        let pool = SqlitePoolOptions::new()
+        let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect_with(opts)
+            .connect(database_url)
             .await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;

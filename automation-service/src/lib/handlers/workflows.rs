@@ -38,11 +38,10 @@ pub async fn list_workflows(
 ) -> Result<Json<Vec<Workflow>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        Workflow,
-        "SELECT id, name, trigger_event, action_type, enabled as \"enabled: bool\",
+    let rows = sqlx::query_as::<_, Workflow>(
+        "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
-         FROM workflows ORDER BY created_at DESC"
+         FROM workflows ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -65,13 +64,12 @@ pub async fn get_workflow(
 ) -> Result<Json<Workflow>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        Workflow,
-        "SELECT id, name, trigger_event, action_type, enabled as \"enabled: bool\",
+    let row = sqlx::query_as::<_, Workflow>(
+        "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -109,27 +107,26 @@ pub async fn create_workflow(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO workflows (id, name, trigger_event, action_type, enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, 1, ?, ?)",
-        id,
-        name,
-        trigger_event,
-        action_type,
-        now,
-        now,
     )
+    .bind(&id)
+    .bind(&name)
+    .bind(&trigger_event)
+    .bind(&action_type)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as!(
-        Workflow,
-        "SELECT id, name, trigger_event, action_type, enabled as \"enabled: bool\",
+    let created = sqlx::query_as::<_, Workflow>(
+        "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -152,13 +149,12 @@ pub async fn update_workflow(
 ) -> Result<Json<Workflow>, Response> {
     require_auth(&headers)?;
 
-    let existing = sqlx::query_as!(
-        Workflow,
-        "SELECT id, name, trigger_event, action_type, enabled as \"enabled: bool\",
+    let existing = sqlx::query_as::<_, Workflow>(
+        "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -218,27 +214,26 @@ pub async fn update_workflow(
     let enabled = req.enabled.unwrap_or(existing.enabled);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "UPDATE workflows SET name = ?, trigger_event = ?, action_type = ?, enabled = ?, updated_at = ?
          WHERE id = ?",
-        name,
-        trigger_event,
-        action_type,
-        enabled,
-        now,
-        id
     )
+    .bind(&name)
+    .bind(&trigger_event)
+    .bind(&action_type)
+    .bind(enabled)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let updated = sqlx::query_as!(
-        Workflow,
-        "SELECT id, name, trigger_event, action_type, enabled as \"enabled: bool\",
+    let updated = sqlx::query_as::<_, Workflow>(
+        "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -260,7 +255,8 @@ pub async fn delete_workflow(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM workflows WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM workflows WHERE id = ?")
+        .bind(id)
         .execute(&state.pool)
         .await
         .map_err(|_| {

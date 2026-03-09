@@ -97,20 +97,34 @@ pub async fn list_contacts(
              FROM contacts WHERE 1=1",
         );
         let mut count_base = String::from("SELECT COUNT(*) FROM contacts WHERE 1=1");
+        let mut param_idx: i32 = 1;
 
         if params.account_id.is_some() {
-            base.push_str(" AND account_id = ?");
-            count_base.push_str(" AND account_id = ?");
+            base.push_str(&format!(" AND account_id = ${}", param_idx));
+            count_base.push_str(&format!(" AND account_id = ${}", param_idx));
+            param_idx += 1;
         }
         if params.lifecycle_stage.is_some() {
-            base.push_str(" AND lifecycle_stage = ?");
-            count_base.push_str(" AND lifecycle_stage = ?");
+            base.push_str(&format!(" AND lifecycle_stage = ${}", param_idx));
+            count_base.push_str(&format!(" AND lifecycle_stage = ${}", param_idx));
+            param_idx += 1;
         }
         if name_pattern.is_some() {
-            base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
-            count_base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
+            base.push_str(&format!(
+                " AND (first_name ILIKE ${0} OR last_name ILIKE ${0} OR email ILIKE ${0})",
+                param_idx
+            ));
+            count_base.push_str(&format!(
+                " AND (first_name ILIKE ${0} OR last_name ILIKE ${0} OR email ILIKE ${0})",
+                param_idx
+            ));
+            param_idx += 1;
         }
-        base.push_str(" ORDER BY last_name ASC, first_name ASC LIMIT ? OFFSET ?");
+        base.push_str(&format!(
+            " ORDER BY last_name ASC, first_name ASC LIMIT ${} OFFSET ${}",
+            param_idx,
+            param_idx + 1
+        ));
 
         // Bind parameters in the same order as the WHERE clauses.
         let mut rows_query = sqlx::query_as::<_, Contact>(&base);
@@ -125,8 +139,8 @@ pub async fn list_contacts(
             count_query = count_query.bind(stage);
         }
         if let Some(ref pattern) = name_pattern {
-            rows_query = rows_query.bind(pattern).bind(pattern).bind(pattern);
-            count_query = count_query.bind(pattern).bind(pattern).bind(pattern);
+            rows_query = rows_query.bind(pattern);
+            count_query = count_query.bind(pattern);
         }
 
         rows_query = rows_query.bind(limit).bind(offset);
@@ -181,7 +195,7 @@ pub async fn get_contact(
 
     match sqlx::query_as::<_, Contact>(
         "SELECT id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
-         FROM contacts WHERE id = ?",
+         FROM contacts WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -280,7 +294,7 @@ pub async fn create_contact(
 
     match sqlx::query(
         "INSERT INTO contacts (id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(&id)
     .bind(account_id)
@@ -329,7 +343,7 @@ pub async fn update_contact(
 
     let existing = match sqlx::query_as::<_, Contact>(
         "SELECT id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
-         FROM contacts WHERE id = ?",
+         FROM contacts WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -442,8 +456,8 @@ pub async fn update_contact(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "UPDATE contacts SET account_id = ?, first_name = ?, last_name = ?, email = ?, phone = ?,
-         lifecycle_stage = ?, updated_at = ? WHERE id = ?",
+        "UPDATE contacts SET account_id = $1, first_name = $2, last_name = $3, email = $4, phone = $5,
+         lifecycle_stage = $6, updated_at = $7 WHERE id = $8",
     )
     .bind(&new_account_id)
     .bind(&first_name)
@@ -492,7 +506,7 @@ pub async fn delete_contact(
         return resp;
     }
 
-    match sqlx::query("DELETE FROM contacts WHERE id = ?")
+    match sqlx::query("DELETE FROM contacts WHERE id = $1")
         .bind(&id)
         .execute(&state.pool)
         .await

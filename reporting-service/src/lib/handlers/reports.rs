@@ -38,7 +38,7 @@ pub async fn get_dashboard_summary(
 ) -> Result<Json<DashboardSummary>, Response> {
     require_auth(&headers)?;
 
-    let count_row = sqlx::query!("SELECT COUNT(*) as cnt FROM reports")
+    let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports")
         .fetch_one(&state.pool)
         .await
         .map_err(|_| {
@@ -49,20 +49,21 @@ pub async fn get_dashboard_summary(
             )
         })?;
 
-    let metric_rows = sqlx::query!("SELECT DISTINCT metric FROM reports ORDER BY metric")
-        .fetch_all(&state.pool)
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DB_ERROR",
-                "database error",
-            )
-        })?;
+    let metric_rows =
+        sqlx::query_scalar::<_, String>("SELECT DISTINCT metric FROM reports ORDER BY metric")
+            .fetch_all(&state.pool)
+            .await
+            .map_err(|_| {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "DB_ERROR",
+                    "database error",
+                )
+            })?;
 
     Ok(Json(DashboardSummary {
-        active_reports: count_row.cnt,
-        core_metrics: metric_rows.into_iter().map(|r| r.metric).collect(),
+        active_reports: count,
+        core_metrics: metric_rows,
     }))
 }
 
@@ -73,10 +74,9 @@ pub async fn list_reports(
 ) -> Result<Json<Vec<SavedReport>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        SavedReport,
+    let rows = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
-         FROM reports ORDER BY created_at DESC"
+         FROM reports ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -99,12 +99,11 @@ pub async fn get_report(
 ) -> Result<Json<SavedReport>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        SavedReport,
+    let row = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -141,17 +140,17 @@ pub async fn create_report(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO reports (id, name, description, metric, dimension, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
-        id,
-        name,
-        req.description,
-        metric,
-        req.dimension,
-        now,
-        now,
     )
+    .bind(&id)
+    .bind(&name)
+    .bind(&req.description)
+    .bind(&metric)
+    .bind(&req.dimension)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| {
@@ -162,12 +161,11 @@ pub async fn create_report(
         )
     })?;
 
-    let created = sqlx::query_as!(
-        SavedReport,
+    let created = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -190,12 +188,11 @@ pub async fn update_report(
 ) -> Result<Json<SavedReport>, Response> {
     require_auth(&headers)?;
 
-    let existing = sqlx::query_as!(
-        SavedReport,
+    let existing = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -251,16 +248,16 @@ pub async fn update_report(
         .or(existing.dimension);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "UPDATE reports SET name = ?, description = ?, metric = ?, dimension = ?, updated_at = ?
          WHERE id = ?",
-        name,
-        description,
-        metric,
-        dimension,
-        now,
-        id
     )
+    .bind(&name)
+    .bind(description)
+    .bind(&metric)
+    .bind(dimension)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| {
@@ -271,12 +268,11 @@ pub async fn update_report(
         )
     })?;
 
-    let updated = sqlx::query_as!(
-        SavedReport,
+    let updated = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -298,7 +294,8 @@ pub async fn delete_report(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM reports WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM reports WHERE id = ?")
+        .bind(id)
         .execute(&state.pool)
         .await
         .map_err(|_| {

@@ -16,3 +16,9 @@ resolver = "2"
 # invasive changes to all handler return types. Accepted trade-off.
 [workspace.lints.clippy]
 result_large_err = "allow"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

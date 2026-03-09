@@ -45,15 +45,14 @@ pub async fn search_documents(
     }
 
     let pattern = format!("%{term}%");
-    let rows = sqlx::query_as!(
-        SearchDocument,
+    let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents
          WHERE LOWER(title) LIKE ? OR LOWER(body) LIKE ?
          ORDER BY created_at DESC",
-        pattern,
-        pattern
     )
+    .bind(&pattern)
+    .bind(&pattern)
     .fetch_all(&state.pool)
     .await
     .map_err(|_| {
@@ -92,10 +91,9 @@ pub async fn list_documents(
 ) -> Result<Json<Vec<SearchDocument>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        SearchDocument,
+    let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
-         FROM search_documents ORDER BY created_at DESC"
+         FROM search_documents ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -118,12 +116,11 @@ pub async fn get_document(
 ) -> Result<Json<SearchDocument>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        SearchDocument,
+    let row = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -162,27 +159,26 @@ pub async fn index_document(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO search_documents (id, entity_type, entity_id, title, body, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)",
-        id,
-        entity_type,
-        entity_id,
-        title,
-        body,
-        now,
-        now,
     )
+    .bind(&id)
+    .bind(&entity_type)
+    .bind(&entity_id)
+    .bind(&title)
+    .bind(&body)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as!(
-        SearchDocument,
+    let created = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -218,7 +214,8 @@ pub async fn update_document(
         ));
     }
 
-    let existing = sqlx::query!("SELECT id FROM search_documents WHERE id = ?", id)
+    let existing = sqlx::query_scalar::<_, String>("SELECT id FROM search_documents WHERE id = ?")
+        .bind(&id)
         .fetch_optional(&state.pool)
         .await
         .map_err(|_| {
@@ -239,26 +236,25 @@ pub async fn update_document(
 
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "UPDATE search_documents SET entity_type = ?, entity_id = ?, title = ?, body = ?, updated_at = ?
          WHERE id = ?",
-        entity_type,
-        entity_id,
-        title,
-        body,
-        now,
-        id
     )
+    .bind(&entity_type)
+    .bind(&entity_id)
+    .bind(&title)
+    .bind(&body)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let updated = sqlx::query_as!(
-        SearchDocument,
+    let updated = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -280,7 +276,8 @@ pub async fn delete_document(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM search_documents WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM search_documents WHERE id = ?")
+        .bind(id)
         .execute(&state.pool)
         .await
         .map_err(|_| {

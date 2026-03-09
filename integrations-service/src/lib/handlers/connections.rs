@@ -38,10 +38,9 @@ pub async fn list_connections(
 ) -> Result<Json<Vec<IntegrationConnection>>, Response> {
     require_auth(&headers)?;
 
-    let rows = sqlx::query_as!(
-        IntegrationConnection,
+    let rows = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
-         FROM connections ORDER BY created_at DESC"
+         FROM connections ORDER BY created_at DESC",
     )
     .fetch_all(&state.pool)
     .await
@@ -64,12 +63,11 @@ pub async fn get_connection(
 ) -> Result<Json<IntegrationConnection>, Response> {
     require_auth(&headers)?;
 
-    let row = sqlx::query_as!(
-        IntegrationConnection,
+    let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -106,25 +104,24 @@ pub async fn create_connection(
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO connections (id, provider, account_ref, status, last_synced_at, created_at, updated_at)
          VALUES (?, ?, ?, 'connected', NULL, ?, ?)",
-        id,
-        provider,
-        account_ref,
-        now,
-        now,
     )
+    .bind(&id)
+    .bind(&provider)
+    .bind(&account_ref)
+    .bind(&now)
+    .bind(&now)
     .execute(&state.pool)
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as!(
-        IntegrationConnection,
+    let created = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = ?",
-        id
     )
+    .bind(id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -147,12 +144,11 @@ pub async fn update_connection(
 ) -> Result<Json<IntegrationConnection>, Response> {
     require_auth(&headers)?;
 
-    let existing = sqlx::query_as!(
-        IntegrationConnection,
+    let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -187,13 +183,13 @@ pub async fn update_connection(
         .or(existing.last_synced_at);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
-    sqlx::query!(
+    sqlx::query(
         "UPDATE connections SET status = ?, last_synced_at = ?, updated_at = ? WHERE id = ?",
-        status,
-        last_synced_at,
-        now,
-        id
     )
+    .bind(&status)
+    .bind(last_synced_at)
+    .bind(&now)
+    .bind(&id)
     .execute(&state.pool)
     .await
     .map_err(|_| {
@@ -204,12 +200,11 @@ pub async fn update_connection(
         )
     })?;
 
-    let updated = sqlx::query_as!(
-        IntegrationConnection,
+    let updated = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = ?",
-        id
     )
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -231,7 +226,8 @@ pub async fn delete_connection(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query!("DELETE FROM connections WHERE id = ?", id)
+    let result = sqlx::query("DELETE FROM connections WHERE id = ?")
+        .bind(id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
