@@ -90,46 +90,81 @@ jobs:
         # on controlled infrastructure. Risk accepted until upstream ships a fix.
         run: cargo audit --ignore RUSTSEC-2023-0071
 
-  # ─── Deploy to Fly.io (main branch only) ────────────────────────────────────
+  # ─── Deploy to Google Cloud Run (main branch only) ─────────────────────────
   #
-  # Requires: FLY_API_TOKEN secret set in GitHub → Settings → Secrets.
-  # Obtain via: fly tokens create deploy -x 999999h
+  # Required GitHub configuration:
+  # - Repository variable GCP_PROJECT_ID: target Google Cloud project ID
+  # - GCP_SA_KEY: JSON key for a service account that can:
+  #     * push to Artifact Registry
+  #     * deploy Cloud Run services
   #
-  # All 8 services deploy in parallel after tests pass.
-  # Fly's Depot builder caches layers, so unchanged services complete in ~30s.
+  # Services are deployed in parallel after tests pass.
   deploy:
     name: Deploy ${{ matrix.service }}
     needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false   # one service failing doesn't abort the others
       matrix:
         include:
           - service: accounts-service
-            fly_config: accounts-service/fly.toml
+            dockerfile: accounts-service/Dockerfile
+            cloud_run_service: accounts-service
           - service: contacts-service
-            fly_config: contacts-service/fly.toml
+            dockerfile: contacts-service/Dockerfile
+            cloud_run_service: contacts-service
           - service: activities-service
-            fly_config: activities-service/fly.toml
+            dockerfile: activities-service/Dockerfile
+            cloud_run_service: activities-service
           - service: automation-service
-            fly_config: automation-service/fly.toml
+            dockerfile: automation-service/Dockerfile
+            cloud_run_service: automation-service
           - service: integrations-service
-            fly_config: integrations-service/fly.toml
+            dockerfile: integrations-service/Dockerfile
+            cloud_run_service: integrations-service
           - service: opportunities-service
-            fly_config: opportunities-service/fly.toml
+            dockerfile: opportunities-service/Dockerfile
+            cloud_run_service: opportunities-service
           - service: reporting-service
-            fly_config: reporting-service/fly.toml
+            dockerfile: reporting-service/Dockerfile
+            cloud_run_service: reporting-service
           - service: search-service
-            fly_config: search-service/fly.toml
+            dockerfile: search-service/Dockerfile
+            cloud_run_service: search-service
+
+    env:
+      GCP_REGION: us-south1
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
 
-      - name: Deploy ${{ matrix.service }}
-        run: flyctl deploy -c ${{ matrix.fly_config }} --remote-only
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        run: |
+          IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/microservices/${{ matrix.service }}:${{ github.sha }}"
+          docker build -f "${{ matrix.dockerfile }}" -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${{ matrix.cloud_run_service }}" \
+            --image "$IMAGE" \
+            --region "${{ env.GCP_REGION }}" \
+            --platform managed \
+            --quiet

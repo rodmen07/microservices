@@ -1,0 +1,256 @@
+locals {
+  registry_base = "${var.region}-docker.pkg.dev/${var.project_id}/microservices"
+
+  # Map service name → { db_secret_key, port }
+  rust_services = {
+    "accounts-service"     = { db_key = "accounts",      port = 8080 }
+    "contacts-service"     = { db_key = "contacts",      port = 8080 }
+    "activities-service"   = { db_key = "activities",    port = 8080 }
+    "automation-service"   = { db_key = "automation",    port = 8080 }
+    "integrations-service" = { db_key = "integrations",  port = 8080 }
+    "opportunities-service" = { db_key = "opportunities", port = 8080 }
+    "reporting-service"    = { db_key = "reporting",     port = 8080 }
+    "search-service"       = { db_key = "search",        port = 8080 }
+  }
+
+  # backend-service (task-api) uses "tasks" DB
+  task_service = {
+    db_key = "tasks"
+    port   = 8080
+  }
+}
+
+# 8 workspace Rust services
+resource "google_cloud_run_v2_service" "rust_services" {
+  for_each = local.rust_services
+
+  name     = each.key
+  location = var.region
+
+  ingress = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.cloud_run.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      # Bootstrap with a public image; CI later deploys service-specific images.
+      image = "us-docker.pkg.dev/cloudrun/container/hello:latest"
+
+      ports {
+        container_port = each.value.port
+      }
+
+      env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.frontend_origin
+      }
+
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.database_urls[each.value.db_key].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "AUTH_JWT_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.jwt_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_version.database_urls,
+    google_secret_manager_secret_version.jwt_secret,
+    google_artifact_registry_repository.microservices,
+  ]
+}
+
+# backend-service (task-api, standalones)
+resource "google_cloud_run_v2_service" "task_api" {
+  name     = "backend-service"
+  location = var.region
+
+  ingress = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.cloud_run.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+
+    containers {
+      image = "us-docker.pkg.dev/cloudrun/container/hello:latest"
+
+      ports {
+        container_port = 8080
+      }
+
+      env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.frontend_origin
+      }
+
+      env {
+        name = "DATABASE_URL"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.database_urls["tasks"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "AUTH_JWT_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.jwt_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_version.database_urls,
+    google_secret_manager_secret_version.jwt_secret,
+    google_artifact_registry_repository.microservices,
+  ]
+}
+
+# ai-orchestrator-service (Python, no DB)
+resource "google_cloud_run_v2_service" "ai_orchestrator" {
+  name     = "ai-orchestrator-service"
+  location = var.region
+
+  ingress = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.cloud_run.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
+    containers {
+      image = "us-docker.pkg.dev/cloudrun/container/hello:latest"
+
+      ports {
+        container_port = 8080
+      }
+
+      env {
+        name = "ANTHROPIC_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.anthropic_api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "AUTH_JWT_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.jwt_secret.secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].containers[0].image,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_version.anthropic_api_key,
+    google_secret_manager_secret_version.jwt_secret,
+    google_artifact_registry_repository.microservices,
+  ]
+}
+
+# Allow unauthenticated access to all Cloud Run services (public API)
+resource "google_cloud_run_v2_service_iam_member" "public_rust" {
+  for_each = local.rust_services
+
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.rust_services[each.key].name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_task_api" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.task_api.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "public_ai_orchestrator" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.ai_orchestrator.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
