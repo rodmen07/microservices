@@ -1,0 +1,5 @@
+Triggered deployment run on 2026-03-09 after automation-service startup fixes.
+Latest service hardening commits:
+- f54bbf38572da899316634bfa8e9a03f5c580033
+- f326efa3ada2aa3e0f730ccfec43a1d016036a7b
+- ed09c76d5f4f5de48fbba57d2b1240cc6334de9c
