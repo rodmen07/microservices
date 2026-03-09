@@ -187,19 +187,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate deploy configuration
+        id: deploy_config
+        run: |
+          if [ -z "${{ env.GCP_PROJECT_ID }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping deploy: repository variable GCP_PROJECT_ID is not set."
+            exit 0
+          fi
+
+          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping deploy: repository secret GCP_SA_KEY is not set."
+            exit 0
+          fi
+
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Authenticate to Google Cloud
+        if: steps.deploy_config.outputs.enabled == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
           project_id: ${{ env.GCP_PROJECT_ID }}
 
       - name: Set up gcloud
+        if: steps.deploy_config.outputs.enabled == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
+        if: steps.deploy_config.outputs.enabled == 'true'
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
       - name: Build and push image
+        if: steps.deploy_config.outputs.enabled == 'true'
         run: |
           IMAGE="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/microservices/${{ matrix.service }}:${{ github.sha }}"
           docker build -f "${{ matrix.dockerfile }}" -t "$IMAGE" .
@@ -207,6 +228,7 @@ jobs:
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
       - name: Deploy to Cloud Run
+        if: steps.deploy_config.outputs.enabled == 'true'
         run: |
           gcloud run deploy "${{ matrix.cloud_run_service }}" \
             --image "$IMAGE" \
