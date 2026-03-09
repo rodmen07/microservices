@@ -16,7 +16,7 @@ async fn main() {
     let port = env::var("PORT")
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(3017);
+        .unwrap_or(8080);
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://reporting.db".to_string());
 
@@ -24,9 +24,17 @@ async fn main() {
         .parse()
         .expect("invalid HOST/PORT combination");
 
-    let state = AppState::from_database_url(&database_url)
-        .await
-        .expect("failed to initialise database");
+    let state = match AppState::from_database_url(&database_url).await {
+        Ok(state) => state,
+        Err(err) => {
+            eprintln!(
+                "failed to initialise database at {database_url}: {err}; falling back to in-memory sqlite"
+            );
+            AppState::from_database_url("sqlite::memory:")
+                .await
+                .expect("failed to initialise fallback in-memory database")
+        }
+    };
 
     let app = build_router(state);
 
