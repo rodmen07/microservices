@@ -10,5 +10,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /app/target/release/automation-service /usr/local/bin/automation-service
 ENV DATABASE_URL=sqlite:////tmp/automation.db
+ENV PORT=8080
 EXPOSE 8080
 CMD ["automation-service"]
