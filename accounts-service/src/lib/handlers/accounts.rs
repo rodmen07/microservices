@@ -65,7 +65,7 @@ pub async fn list_accounts(
                 "SELECT id, name, domain, status, created_at, updated_at
                  FROM accounts
                  WHERE status = $1 AND name ILIKE $2
-                 ORDER BY name ASC LIMIT $3 OFFSET $4",
+                 ORDER BY created_at ASC, id ASC LIMIT $3 OFFSET $4",
             )
             .bind(status)
             .bind(&pattern)
@@ -86,7 +86,7 @@ pub async fn list_accounts(
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
                  FROM accounts WHERE status = $1
-                 ORDER BY name ASC LIMIT $2 OFFSET $3",
+                 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3",
             )
             .bind(status)
             .bind(limit)
@@ -105,7 +105,7 @@ pub async fn list_accounts(
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
                  FROM accounts WHERE name ILIKE $1
-                 ORDER BY name ASC LIMIT $2 OFFSET $3",
+                 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3",
             )
             .bind(&pattern)
             .bind(limit)
@@ -122,7 +122,7 @@ pub async fn list_accounts(
         (None, None) => {
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts ORDER BY name ASC LIMIT $1 OFFSET $2",
+                 FROM accounts ORDER BY created_at ASC, id ASC LIMIT $1 OFFSET $2",
             )
             .bind(limit)
             .bind(offset)
