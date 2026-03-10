@@ -15,6 +15,39 @@ The goal is to keep the platform easy to run locally while preserving stable cro
 
 ## 1) System architecture
 
+### High-level architecture diagram
+
+```text
+         +----------------------+
+         |    frontend-service  |
+         | React/Vite UI        |
+         +----------+-----------+
+            |
+            | HTTP / hash-routed UX
+            v
+         +----------+-----------+
+         |   backend-service    |
+         | Rust/Axum API        |
+         | SQLite + JWT         |
+         +----+-------------+---+
+          |             |
+        plan requests |             | auth / domain calls
+          v             v
+        +-------------+--+   +------+------------------+
+        | ai-orchestrator |   | auth-service           |
+        | Python planner  |   | token issue / verify   |
+        +-----------------+   +------------------------+
+
+  +------------------- domain microservices -------------------+
+  | accounts | contacts | activities | automation | search     |
+  | opportunities | integrations | reporting                   |
+  +------------------------------------------------------------+
+
+  +---------------- deployment / delivery ---------------------+
+  | GitHub Actions -> Artifact Registry -> Cloud Run           |
+  +------------------------------------------------------------+
+```
+
 ### Service boundaries
 
 - **frontend-service** owns web UX, stateful task interactions, and goal visualization.
