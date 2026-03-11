@@ -137,6 +137,13 @@ pub async fn create_activity(
         )
     })?;
 
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "activities",
+        "activity.created",
+        serde_json::to_value(&created).unwrap_or_default(),
+    );
+
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -246,6 +253,13 @@ pub async fn update_activity(
             "database error",
         )
     })?;
+
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "activities",
+        "activity.updated",
+        serde_json::to_value(&updated).unwrap_or_default(),
+    );
 
     Ok(Json(updated))
 }

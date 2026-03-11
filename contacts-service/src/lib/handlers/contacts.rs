@@ -327,6 +327,13 @@ pub async fn create_contact(
         updated_at: now,
     };
 
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "contacts",
+        "contact.created",
+        serde_json::to_value(&contact).unwrap_or_default(),
+    );
+
     (StatusCode::CREATED, Json(contact)).into_response()
 }
 
@@ -492,6 +499,13 @@ pub async fn update_contact(
         created_at: existing.created_at,
         updated_at: now,
     };
+
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "contacts",
+        "contact.updated",
+        serde_json::to_value(&updated).unwrap_or_default(),
+    );
 
     Json(updated).into_response()
 }

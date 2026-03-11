@@ -152,6 +152,13 @@ pub async fn create_opportunity(
         )
     })?;
 
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "opportunities",
+        "opportunity.created",
+        serde_json::to_value(&created).unwrap_or_default(),
+    );
+
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -248,6 +255,13 @@ pub async fn update_opportunity(
             "database error",
         )
     })?;
+
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "opportunities",
+        "opportunity.updated",
+        serde_json::to_value(&updated).unwrap_or_default(),
+    );
 
     Ok(Json(updated))
 }

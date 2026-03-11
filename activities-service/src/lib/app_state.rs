@@ -3,6 +3,8 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) pool: PgPool,
+    /// HTTP client for pipeline event emission.
+    pub(crate) http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -14,6 +16,16 @@ impl AppState {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
-        Ok(Self { pool })
+        let http_client = reqwest::Client::builder()
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("failed to build HTTP client");
+
+        Ok(Self { pool, http_client })
     }
 }

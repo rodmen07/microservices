@@ -279,6 +279,13 @@ pub async fn create_account(
         updated_at: now,
     };
 
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "accounts",
+        "account.created",
+        serde_json::to_value(&account).unwrap_or_default(),
+    );
+
     (StatusCode::CREATED, Json(account)).into_response()
 }
 
@@ -387,6 +394,13 @@ pub async fn update_account(
         created_at: existing.created_at,
         updated_at: now,
     };
+
+    crate::pipeline::emit_event(
+        state.http_client.clone(),
+        "accounts",
+        "account.updated",
+        serde_json::to_value(&updated).unwrap_or_default(),
+    );
 
     Json(updated).into_response()
 }

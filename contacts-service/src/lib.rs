@@ -6,6 +6,8 @@ pub mod auth;
 pub mod handlers;
 #[path = "lib/models.rs"]
 pub mod models;
+#[path = "lib/pipeline.rs"]
+pub mod pipeline;
 #[path = "lib/router.rs"]
 pub mod router;
 
