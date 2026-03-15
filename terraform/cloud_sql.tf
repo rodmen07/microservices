@@ -20,11 +20,8 @@ resource "google_sql_database_instance" "main" {
 
     ip_configuration {
       ipv4_enabled = true
-      # Allow Cloud Run to connect via public IP with SSL
-      authorized_networks {
-        name  = "all-cloud-run"
-        value = "0.0.0.0/0"
-      }
+      # No authorized_networks — Cloud Run connects via Cloud SQL connector
+      # using INSTANCE_CONNECTION_NAME, not a public authorized IP range.
     }
 
     database_flags {

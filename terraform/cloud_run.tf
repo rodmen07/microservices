@@ -164,11 +164,12 @@ resource "google_cloud_run_v2_service" "task_api" {
 }
 
 # ai-orchestrator-service (Python, no DB)
+# Internal-only: only reachable from other Cloud Run services in this project.
 resource "google_cloud_run_v2_service" "ai_orchestrator" {
   name     = "ai-orchestrator-service"
   location = var.region
 
-  ingress = "INGRESS_TRAFFIC_ALL"
+  ingress = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
 
   template {
     service_account = google_service_account.cloud_run.email
@@ -228,7 +229,7 @@ resource "google_cloud_run_v2_service" "ai_orchestrator" {
   ]
 }
 
-# Allow unauthenticated access to all Cloud Run services (public API)
+# Public APIs — unauthenticated invocation allowed (JWT enforced at app layer)
 resource "google_cloud_run_v2_service_iam_member" "public_rust" {
   for_each = local.rust_services
 
@@ -247,10 +248,11 @@ resource "google_cloud_run_v2_service_iam_member" "public_task_api" {
   member   = "allUsers"
 }
 
-resource "google_cloud_run_v2_service_iam_member" "public_ai_orchestrator" {
+# AI orchestrator is internal-only — only the Cloud Run service account may invoke it
+resource "google_cloud_run_v2_service_iam_member" "internal_ai_orchestrator" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.ai_orchestrator.name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "serviceAccount:${google_service_account.cloud_run.email}"
 }
