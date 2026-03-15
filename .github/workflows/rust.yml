@@ -93,6 +93,7 @@ jobs:
       - name: Test — SQLite-backed services
         env:
           AUTH_JWT_SECRET: dev-insecure-secret-change-me
+          ALLOWED_ORIGINS: http://localhost:5173
         run: |
           DATABASE_URL=sqlite:////tmp/workflows.db     cargo test -p automation-service
           DATABASE_URL=sqlite:////tmp/connections.db   cargo test -p integrations-service
@@ -103,6 +104,7 @@ jobs:
       - name: Test — Postgres-backed services
         env:
           AUTH_JWT_SECRET: dev-insecure-secret-change-me
+          ALLOWED_ORIGINS: http://localhost:5173
         run: |
           TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
