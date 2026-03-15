@@ -31,11 +31,12 @@ name: CI/CD Pipeline — Multi-Environment
 #     ECR_REPOSITORY                  — repository name
 # ---------------------------------------------------------------------------
 
+# This is a reference/template workflow demonstrating multi-environment promotion.
+# Primary CI (cargo test --workspace with Postgres service) lives in rust.yml.
+# Trigger manually via workflow_dispatch to validate the template against a fork,
+# or adapt the `on:` block when using this in a project without rust.yml.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 env:
   # Set IMAGE_NAME to your application identifier
