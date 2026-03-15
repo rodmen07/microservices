@@ -1,4 +1,4 @@
-FROM rust:latest AS builder
+FROM rust:1.85-bookworm AS builder
 WORKDIR /app
 COPY . .
 RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
@@ -11,5 +11,7 @@ WORKDIR /app
 COPY --from=builder /app/target/release/reporting-service /usr/local/bin/reporting-service
 ENV DATABASE_URL=sqlite:////tmp/reporting.db
 ENV PORT=8080
+RUN useradd -r -s /bin/false appuser
+USER appuser
 EXPOSE 8080
 CMD ["reporting-service"]

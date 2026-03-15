@@ -27,15 +27,7 @@ fn build_cors_layer() -> CorsLayer {
         .collect();
 
     if origins.is_empty() {
-        return CorsLayer::new()
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PATCH,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers(Any);
+        panic!("ALLOWED_ORIGINS must be set — refusing to start with permissive CORS");
     }
 
     CorsLayer::new()

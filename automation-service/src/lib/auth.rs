@@ -47,9 +47,9 @@ impl AuthError {
     }
 }
 
-// Reads the JWT secret from AUTH_JWT_SECRET env var, falling back to a dev default
+// Reads the JWT secret from AUTH_JWT_SECRET env var — panics at startup if unset
 fn auth_secret() -> String {
-    env::var("AUTH_JWT_SECRET").unwrap_or_else(|_| "dev-insecure-secret-change-me".to_string())
+    env::var("AUTH_JWT_SECRET").expect("AUTH_JWT_SECRET must be set")
 }
 
 // Reads AUTH_JWT_ALGORITHM env var and returns the corresponding jsonwebtoken Algorithm

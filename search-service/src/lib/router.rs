@@ -16,8 +16,7 @@ use crate::handlers::{
 pub fn build_cors_layer() -> CorsLayer {
     let origins = env::var("ALLOWED_ORIGINS").unwrap_or_default();
     if origins.trim() == "*" {
-        tracing::warn!("CORS is fully permissive — restrict ALLOWED_ORIGINS in production");
-        return CorsLayer::permissive();
+        panic!("ALLOWED_ORIGINS=* is not allowed — use an explicit origin list in production");
     }
     if origins.trim().is_empty() {
         return CorsLayer::new();

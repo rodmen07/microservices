@@ -3,5 +3,6 @@ ignore = [
   # RUSTSEC-2023-0071: rsa Marvin Attack — no patch available in rsa 0.9.x.
   # All services default to HS256; RSA keys are only used for token
   # verification on controlled infrastructure. Risk accepted.
+  # Revisit: run `cargo update -p rsa` and re-check when upgrading dependencies.
   "RUSTSEC-2023-0071",
 ]
