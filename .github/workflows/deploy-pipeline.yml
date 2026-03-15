@@ -1,0 +1,321 @@
+name: CI/CD Pipeline — Multi-Environment
+
+# ---------------------------------------------------------------------------
+# Cloud-agnostic multi-environment promotion pipeline.
+# Supports GCP Cloud Run (OIDC via Workload Identity Federation) and
+# AWS ECS (OIDC via IAM role assumption). Configure one or both providers.
+#
+# Promotion flow:
+#   test  →  deploy-staging (auto)  →  deploy-prod (manual approval required)
+#            ↓ health-check                  ↓ health-check
+#            ↓ rollback on failure           ↓ rollback on failure
+#
+# Required GitHub configuration:
+#   Environments: "staging", "production"
+#     - staging:    no protection rules (auto-deploy)
+#     - production: add required reviewers for manual approval gate
+#
+#   Per-environment secrets (set separately in each environment):
+#     GCP_WORKLOAD_IDENTITY_PROVIDER  — WIF provider resource name
+#     GCP_SERVICE_ACCOUNT             — deployer SA email
+#     GCP_SERVICE_URL                 — Cloud Run service URL (for health check)
+#     AWS_ROLE_TO_ASSUME              — IAM role ARN for OIDC
+#     AWS_ECS_CLUSTER                 — ECS cluster name
+#     AWS_ECS_SERVICE                 — ECS service name
+#
+#   Repository variables:
+#     GCP_REGION                      — e.g. us-central1
+#     GCP_PROJECT_ID                  — GCP project ID
+#     AWS_REGION                      — e.g. us-east-1
+#     ECR_REGISTRY                    — 123456789012.dkr.ecr.us-east-1.amazonaws.com
+#     ECR_REPOSITORY                  — repository name
+# ---------------------------------------------------------------------------
+
+# This is a reference/template workflow demonstrating multi-environment promotion.
+# Primary CI (cargo test --workspace with Postgres service) lives in rust.yml.
+# Trigger manually via workflow_dispatch to validate the template against a fork,
+# or adapt the `on:` block when using this in a project without rust.yml.
+on:
+  workflow_dispatch:
+
+env:
+  # Set IMAGE_NAME to your application identifier
+  IMAGE_NAME: infraportal
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Test — runs on every push and PR
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Lint (Clippy)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          AUTH_JWT_SECRET: test-secret-for-ci
+          ALLOWED_ORIGINS: http://localhost:5173
+
+      - name: Test
+        run: cargo test --workspace
+        env:
+          AUTH_JWT_SECRET: test-secret-for-ci
+          ALLOWED_ORIGINS: http://localhost:5173
+
+      - name: Security audit
+        run: |
+          cargo install cargo-audit --quiet
+          cargo audit
+
+      - name: Dockerfile lint (non-root enforcement)
+        run: |
+          # Verify every Dockerfile has a USER directive in the final stage
+          # Fails the build if a service would run as root
+          for f in $(find . -name Dockerfile -not -path "*/target/*"); do
+            if ! grep -q "^USER " "$f"; then
+              echo "FAIL: $f is missing a USER directive (CC6.8 non-root requirement)"
+              exit 1
+            fi
+            echo "OK: $f"
+          done
+
+  # ---------------------------------------------------------------------------
+  # Deploy to Staging — auto on push to main
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy — Staging
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging  # auto-deploys; no approval gate on this environment
+    permissions:
+      id-token: write   # required for OIDC
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- GCP path --------------------------------------------------------
+      - name: Authenticate to GCP (staging)
+        if: vars.GCP_PROJECT_ID != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        if: vars.GCP_PROJECT_ID != ''
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push to Artifact Registry (staging)
+        if: vars.GCP_PROJECT_ID != ''
+        run: |
+          gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+          IMAGE="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/app-images/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "GCP_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run (staging)
+        if: vars.GCP_PROJECT_ID != ''
+        run: |
+          gcloud run deploy "${{ env.IMAGE_NAME }}-staging" \
+            --image "${{ env.GCP_IMAGE }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --min-instances 0 \
+            --max-instances 3 \
+            --quiet
+
+      # ---- AWS path --------------------------------------------------------
+      - name: Authenticate to AWS (staging)
+        if: vars.AWS_REGION != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Build and push to ECR (staging)
+        if: vars.AWS_REGION != ''
+        run: |
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" | \
+            docker login --username AWS --password-stdin "${{ vars.ECR_REGISTRY }}"
+          IMAGE="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:staging-${{ github.sha }}"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "AWS_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Update ECS service (staging)
+        if: vars.AWS_REGION != ''
+        run: |
+          # Register new task definition revision with updated image
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "${{ env.IMAGE_NAME }}-staging" \
+            --query 'taskDefinition' --output json)
+          NEW_TD=$(echo "$TASK_DEF" | \
+            jq --arg IMAGE "${{ env.AWS_IMAGE }}" \
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)')
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TD" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service \
+            --cluster "${{ secrets.AWS_ECS_CLUSTER }}" \
+            --service "${{ secrets.AWS_ECS_SERVICE }}-staging" \
+            --task-definition "$NEW_ARN" \
+            --region "${{ vars.AWS_REGION }}"
+
+      # ---- Health check (cloud-agnostic) -----------------------------------
+      - name: Health check — staging
+        id: health
+        run: |
+          SERVICE_URL="${{ secrets.GCP_SERVICE_URL || format('https://{0}-staging.{1}.run.app', env.IMAGE_NAME, vars.GCP_REGION) }}"
+          MAX_WAIT=90 INTERVAL=10 SERVICE_URL="$SERVICE_URL" \
+            bash docs/cicd-template/scripts/health-check.sh
+
+      - name: Rollback GCP on health check failure
+        if: failure() && steps.health.outcome == 'failure' && vars.GCP_PROJECT_ID != ''
+        run: |
+          SERVICE="${{ env.IMAGE_NAME }}-staging" \
+          REGION="${{ vars.GCP_REGION }}" \
+            bash docs/cicd-template/scripts/rollback-gcp.sh
+
+      - name: Rollback AWS on health check failure
+        if: failure() && steps.health.outcome == 'failure' && vars.AWS_REGION != ''
+        run: |
+          CLUSTER="${{ secrets.AWS_ECS_CLUSTER }}" \
+          SERVICE="${{ secrets.AWS_ECS_SERVICE }}-staging" \
+          REGION="${{ vars.AWS_REGION }}" \
+            bash docs/cicd-template/scripts/rollback-aws.sh
+
+  # ---------------------------------------------------------------------------
+  # Deploy to Production — manual approval required
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy — Production
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production  # configure required reviewers in GitHub repo settings
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---- GCP path --------------------------------------------------------
+      - name: Authenticate to GCP (production)
+        if: vars.GCP_PROJECT_ID != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        if: vars.GCP_PROJECT_ID != ''
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Promote staging image to prod tag (GCP)
+        if: vars.GCP_PROJECT_ID != ''
+        run: |
+          REGISTRY="${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/app-images"
+          STAGING_IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:staging-${{ github.sha }}"
+          PROD_IMAGE="${REGISTRY}/${{ env.IMAGE_NAME }}:prod-${{ github.sha }}"
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker pull "$STAGING_IMAGE"
+          docker tag "$STAGING_IMAGE" "$PROD_IMAGE"
+          docker push "$PROD_IMAGE"
+          echo "GCP_PROD_IMAGE=$PROD_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run (production)
+        if: vars.GCP_PROJECT_ID != ''
+        run: |
+          gcloud run deploy "${{ env.IMAGE_NAME }}" \
+            --image "${{ env.GCP_PROD_IMAGE }}" \
+            --region "${{ vars.GCP_REGION }}" \
+            --min-instances 1 \
+            --max-instances 10 \
+            --quiet
+
+      # ---- AWS path --------------------------------------------------------
+      - name: Authenticate to AWS (production)
+        if: vars.AWS_REGION != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Tag staging image as prod (AWS)
+        if: vars.AWS_REGION != ''
+        run: |
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" | \
+            docker login --username AWS --password-stdin "${{ vars.ECR_REGISTRY }}"
+          STAGING="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:staging-${{ github.sha }}"
+          PROD="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY }}:prod-${{ github.sha }}"
+          docker pull "$STAGING"
+          docker tag "$STAGING" "$PROD"
+          docker push "$PROD"
+          echo "AWS_PROD_IMAGE=$PROD" >> "$GITHUB_ENV"
+
+      - name: Update ECS service (production)
+        if: vars.AWS_REGION != ''
+        run: |
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition "${{ env.IMAGE_NAME }}" \
+            --query 'taskDefinition' --output json)
+          NEW_TD=$(echo "$TASK_DEF" | \
+            jq --arg IMAGE "${{ env.AWS_PROD_IMAGE }}" \
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn,.revision,.status,.requiresAttributes,.compatibilities,.registeredAt,.registeredBy)')
+          NEW_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TD" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          aws ecs update-service \
+            --cluster "${{ secrets.AWS_ECS_CLUSTER }}" \
+            --service "${{ secrets.AWS_ECS_SERVICE }}" \
+            --task-definition "$NEW_ARN" \
+            --region "${{ vars.AWS_REGION }}"
+
+      # ---- Health check (cloud-agnostic) -----------------------------------
+      - name: Health check — production
+        id: health
+        run: |
+          SERVICE_URL="${{ secrets.GCP_SERVICE_URL || format('https://{0}.{1}.run.app', env.IMAGE_NAME, vars.GCP_REGION) }}"
+          MAX_WAIT=120 INTERVAL=10 SERVICE_URL="$SERVICE_URL" \
+            bash docs/cicd-template/scripts/health-check.sh
+
+      - name: Rollback GCP on health check failure
+        if: failure() && steps.health.outcome == 'failure' && vars.GCP_PROJECT_ID != ''
+        run: |
+          SERVICE="${{ env.IMAGE_NAME }}" \
+          REGION="${{ vars.GCP_REGION }}" \
+            bash docs/cicd-template/scripts/rollback-gcp.sh
+
+      - name: Rollback AWS on health check failure
+        if: failure() && steps.health.outcome == 'failure' && vars.AWS_REGION != ''
+        run: |
+          CLUSTER="${{ secrets.AWS_ECS_CLUSTER }}" \
+          SERVICE="${{ secrets.AWS_ECS_SERVICE }}" \
+          REGION="${{ vars.AWS_REGION }}" \
+            bash docs/cicd-template/scripts/rollback-aws.sh
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "## Production Deployment Successful" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Deployed by: @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Approved via: GitHub Environment protection rule" >> "$GITHUB_STEP_SUMMARY"
