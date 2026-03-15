@@ -143,9 +143,13 @@ jobs:
   #
   # Required GitHub configuration:
   # - Repository variable GCP_PROJECT_ID: target Google Cloud project ID
-  # - GCP_SA_KEY: JSON key for a service account that can:
-  #     * push to Artifact Registry
-  #     * deploy Cloud Run services
+  # - Repository secret GCP_WORKLOAD_IDENTITY_PROVIDER: full WIF provider resource name
+  #     projects/PROJECT_NUM/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
+  # - Repository secret GCP_SERVICE_ACCOUNT: deployer SA email
+  #     deployer@PROJECT_ID.iam.gserviceaccount.com
+  #
+  # The SA needs roles: Artifact Registry Writer, Cloud Run Developer.
+  # The WIF pool must trust this repo: attribute.repository=="rodmen07/microservices"
   #
   # Services are deployed in parallel after tests pass.
   deploy:
@@ -155,6 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write   # required for OIDC token exchange with GCP WIF
     strategy:
       fail-fast: false   # one service failing doesn't abort the others
       matrix:
@@ -200,9 +205,9 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+          if [ -z "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Skipping deploy: repository secret GCP_SA_KEY is not set."
+            echo "::warning::Skipping deploy: repository secret GCP_WORKLOAD_IDENTITY_PROVIDER is not set."
             exit 0
           fi
 
@@ -216,17 +221,19 @@ jobs:
             echo "GCP_PROJECT_ID: missing"
           fi
 
-          echo "GCP_SA_KEY: ${HAS_GCP_SA_KEY}"
+          echo "GCP_WORKLOAD_IDENTITY_PROVIDER: ${HAS_WIF}"
+          echo "GCP_SERVICE_ACCOUNT: ${HAS_SA}"
           echo "Deploy enabled: ${{ steps.deploy_config.outputs.enabled }}"
         env:
-          HAS_GCP_SA_KEY: ${{ secrets.GCP_SA_KEY != '' }}
+          HAS_WIF: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+          HAS_SA: ${{ secrets.GCP_SERVICE_ACCOUNT != '' }}
 
       - name: Authenticate to Google Cloud
         if: steps.deploy_config.outputs.enabled == 'true'
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-          project_id: ${{ env.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud
         if: steps.deploy_config.outputs.enabled == 'true'
