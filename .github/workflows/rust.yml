@@ -91,6 +91,8 @@ jobs:
 
       # Run tests per-service so each gets the right DATABASE_URL
       - name: Test — SQLite-backed services
+        env:
+          AUTH_JWT_SECRET: dev-insecure-secret-change-me
         run: |
           DATABASE_URL=sqlite:////tmp/workflows.db     cargo test -p automation-service
           DATABASE_URL=sqlite:////tmp/connections.db   cargo test -p integrations-service
@@ -99,6 +101,8 @@ jobs:
           DATABASE_URL=sqlite:////tmp/documents.db     cargo test -p search-service
 
       - name: Test — Postgres-backed services
+        env:
+          AUTH_JWT_SECRET: dev-insecure-secret-change-me
         run: |
           TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
