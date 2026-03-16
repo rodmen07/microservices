@@ -145,7 +145,7 @@ jobs:
       # ---- AWS path --------------------------------------------------------
       - name: Authenticate to AWS (staging)
         if: vars.AWS_REGION != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -254,7 +254,7 @@ jobs:
       # ---- AWS path --------------------------------------------------------
       - name: Authenticate to AWS (production)
         if: vars.AWS_REGION != ''
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ vars.AWS_REGION }}
