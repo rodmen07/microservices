@@ -64,8 +64,8 @@ pub async fn list_accounts(
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
                  FROM accounts
-                 WHERE status = $1 AND name ILIKE $2
-                 ORDER BY created_at ASC, id ASC LIMIT $3 OFFSET $4",
+                 WHERE status = ? AND name LIKE ?
+                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
             )
             .bind(status)
             .bind(&pattern)
@@ -74,7 +74,7 @@ pub async fn list_accounts(
             .fetch_all(&state.pool)
             .await;
             let total = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM accounts WHERE status = $1 AND name ILIKE $2",
+                "SELECT COUNT(*) FROM accounts WHERE status = ? AND name LIKE ?",
             )
             .bind(status)
             .bind(&pattern)
@@ -85,8 +85,8 @@ pub async fn list_accounts(
         (Some(status), None) => {
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts WHERE status = $1
-                 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3",
+                 FROM accounts WHERE status = ?
+                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
             )
             .bind(status)
             .bind(limit)
@@ -94,7 +94,7 @@ pub async fn list_accounts(
             .fetch_all(&state.pool)
             .await;
             let total =
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE status = $1")
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE status = ?")
                     .bind(status)
                     .fetch_one(&state.pool)
                     .await;
@@ -104,8 +104,8 @@ pub async fn list_accounts(
             let pattern = format!("%{}%", q);
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts WHERE name ILIKE $1
-                 ORDER BY created_at ASC, id ASC LIMIT $2 OFFSET $3",
+                 FROM accounts WHERE name LIKE ?
+                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
             )
             .bind(&pattern)
             .bind(limit)
@@ -113,7 +113,7 @@ pub async fn list_accounts(
             .fetch_all(&state.pool)
             .await;
             let total =
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE name ILIKE $1")
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE name LIKE ?")
                     .bind(&pattern)
                     .fetch_one(&state.pool)
                     .await;
@@ -122,7 +122,7 @@ pub async fn list_accounts(
         (None, None) => {
             let rows = sqlx::query_as::<_, Account>(
                 "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts ORDER BY created_at ASC, id ASC LIMIT $1 OFFSET $2",
+                 FROM accounts ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
             )
             .bind(limit)
             .bind(offset)
@@ -179,7 +179,7 @@ pub async fn get_account(
     }
 
     match sqlx::query_as::<_, Account>(
-        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = $1",
+        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -248,7 +248,7 @@ pub async fn create_account(
 
     match sqlx::query(
         "INSERT INTO accounts (id, name, domain, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6)",
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&name)
@@ -302,7 +302,7 @@ pub async fn update_account(
 
     // Fetch existing account first.
     let existing = match sqlx::query_as::<_, Account>(
-        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = $1",
+        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -365,7 +365,7 @@ pub async fn update_account(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "UPDATE accounts SET name = $1, domain = $2, status = $3, updated_at = $4 WHERE id = $5",
+        "UPDATE accounts SET name = ?, domain = ?, status = ?, updated_at = ? WHERE id = ?",
     )
     .bind(&name)
     .bind(&domain)
@@ -415,7 +415,7 @@ pub async fn delete_account(
         return resp;
     }
 
-    match sqlx::query("DELETE FROM accounts WHERE id = $1")
+    match sqlx::query("DELETE FROM accounts WHERE id = ?")
         .bind(&id)
         .execute(&state.pool)
         .await
