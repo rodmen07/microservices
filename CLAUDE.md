@@ -2,7 +2,7 @@
 
 ## What this project is
 
-TaskForge: a portfolio microservices system. Nine independently deployed services, three of which are production-grade. The others are stubs waiting to be upgraded.
+InfraPortal: a portfolio microservices system. Nine independently deployed services, three of which are production-grade. The others are stubs waiting to be upgraded.
 
 **Deployed and production-grade:**
 - `task-api-service` — Rust/Axum, SQLite, JWT auth, AI planner proxy. Port 3000. The reference implementation.
@@ -194,9 +194,6 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 - Hash-based router: `window.location.hash` + `hashchange` event in `src/main.tsx`
 - To add a page: create `src/pages/MyPage.tsx`, import in `main.tsx`, add `if (hash === '#/mypage') return <MyPage />`
 - CMS-driven content via JSON files in `public/content/` fetched at runtime
-- `src/api/tasks.ts` — all API calls; `src/types.ts` — shared TypeScript types
-- Kanban board has HTML5 DnD already implemented
-- No routing library (react-router-dom) — intentional, hash router is ~15 lines
 
 ---
 
@@ -205,6 +202,36 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 - `d:\Projects\microservices\` — Rust workspace (remote: `microservices`)
 - `d:\Projects\microservices\frontend-service\` — React frontend (remote: `frontend-service`)
 - Commit both repos separately when making cross-cutting changes.
+
+---
+
+## Roadmap
+
+### v0.4 — Language Breadth & AI Depth (In Progress)
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v0.4.1 | AI Consulting Feature | Published (2026-03-17) |
+| v0.4.2 | Django REST API (`observaboard`) | Published (2026-03-17) |
+| v0.4.3 | Go Service | Published (2026-03-17) |
+
+**Completion states:** Planned → Implemented → Published.
+Published means all Release Locations below have been updated.
+
+---
+
+## Release Locations
+
+Every location that must be updated when publishing a version. This list is the canonical source for the admin release checklist at `#/admin`.
+
+| # | Location | Path / URL |
+|---|----------|------------|
+| 1 | Patch Notes page | `standalones/frontend-service/src/pages/PatchNotesPage.tsx` |
+| 2 | Portfolio README | `README.md` (root of Portfolio repo) |
+| 3 | CLAUDE.md instructions | `microservices/CLAUDE.md` (this file) — update Roadmap table |
+| 4 | Memory — next session todos | `C:\Users\rodme\.claude\projects\d--Projects\memory\project_next_session_todos.md` |
+| 5 | MEMORY.md index | `C:\Users\rodme\.claude\projects\d--Projects\memory\MEMORY.md` |
+| 6 | GitHub release tag | https://github.com/rodmen07/portfolio/releases — create release for tag |
 
 ---
 
@@ -219,4 +246,3 @@ When upgrading any of the remaining stubs, do in order:
 6. Rewrite `src/lib.rs` with `#[path]` declarations
 7. Rewrite `src/main.rs` to use `AppState::from_database_url` + `build_router`
 8. Add or update Cloud Run/Terraform service configuration
-9. Update `frontend-service/public/content/roadmap.json` to mark as shipped
