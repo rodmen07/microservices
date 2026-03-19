@@ -1,0 +1,111 @@
+# Local dev environment — all backend services
+# Frontend runs separately: cd standalones/frontend-service && npm run dev
+# Uses .env.local in frontend-service for URLs pointing at these containers.
+#
+# Usage:
+#   docker-compose up --build        # build + start everything
+#   docker-compose up accounts contacts opportunities activities  # subset
+#   docker-compose down
+
+services:
+
+  # ── Rust workspace services ────────────────────────────────────────────────
+  # All build from workspace root context (required for cargo workspace)
+
+  accounts:
+    build:
+      context: .
+      dockerfile: accounts-service/Dockerfile
+    ports:
+      - "3010:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  contacts:
+    build:
+      context: .
+      dockerfile: contacts-service/Dockerfile
+    ports:
+      - "3011:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+      ACCOUNTS_SERVICE_URL: "http://accounts:8080"
+
+  opportunities:
+    build:
+      context: .
+      dockerfile: opportunities-service/Dockerfile
+    ports:
+      - "3012:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  activities:
+    build:
+      context: .
+      dockerfile: activities-service/Dockerfile
+    ports:
+      - "3013:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  search:
+    build:
+      context: .
+      dockerfile: search-service/Dockerfile
+    ports:
+      - "8083:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  reporting:
+    build:
+      context: .
+      dockerfile: reporting-service/Dockerfile
+    ports:
+      - "8086:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "sqlite::memory:"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  # ── Go SSE hub ─────────────────────────────────────────────────────────────
+
+  event-stream:
+    build:
+      context: standalones/event-stream-service
+    ports:
+      - "8085:8085"
+    environment:
+      PORT: "8085"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+
+  # ── Django observaboard ────────────────────────────────────────────────────
+
+  observaboard:
+    build:
+      context: ../observaboard
+    ports:
+      - "8000:8000"
+    environment:
+      SECRET_KEY: "django-insecure-dev-key-change-me"
+      DEBUG: "true"
+      ALLOWED_HOSTS: "localhost,127.0.0.1"
+      ALLOWED_ORIGINS: "http://localhost:5173"
