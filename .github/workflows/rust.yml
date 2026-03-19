@@ -69,8 +69,6 @@ jobs:
       # We replicate the Dockerfile pattern: create a temp DB per service.
       - name: Create test databases
         run: |
-          sqlite3 /tmp/accounts.db      < accounts-service/migrations/0001_create_accounts.sql
-          sqlite3 /tmp/contacts.db      < contacts-service/migrations/0001_create_contacts.sql
           sqlite3 /tmp/activities.db    < activities-service/migrations/0001_create_activities.sql
           sqlite3 /tmp/workflows.db     < automation-service/migrations/0001_create_workflows.sql
           sqlite3 /tmp/connections.db   < integrations-service/migrations/0001_create_connections.sql
@@ -81,8 +79,6 @@ jobs:
       # Clippy for SQLite-backed services
       - name: Clippy — SQLite-backed services
         run: |
-          DATABASE_URL=sqlite:////tmp/accounts.db      cargo clippy -p accounts-service      -- -D warnings
-          DATABASE_URL=sqlite:////tmp/contacts.db      cargo clippy -p contacts-service      -- -D warnings
           DATABASE_URL=sqlite:////tmp/workflows.db     cargo clippy -p automation-service    -- -D warnings
           DATABASE_URL=sqlite:////tmp/connections.db   cargo clippy -p integrations-service  -- -D warnings
           DATABASE_URL=sqlite:////tmp/opportunities.db cargo clippy -p opportunities-service -- -D warnings
@@ -91,7 +87,7 @@ jobs:
 
       # Postgres-backed services use runtime sqlx queries — no DB needed at compile time
       - name: Clippy — Postgres-backed services
-        run: cargo clippy -p activities-service -- -D warnings
+        run: cargo clippy -p accounts-service -p activities-service -p contacts-service -- -D warnings
 
       # Run tests per-service so each gets the right DATABASE_URL
       - name: Test — SQLite-backed services
@@ -99,8 +95,6 @@ jobs:
           AUTH_JWT_SECRET: dev-insecure-secret-change-me
           ALLOWED_ORIGINS: http://localhost:5173
         run: |
-          DATABASE_URL=sqlite:////tmp/accounts.db      cargo test -p accounts-service
-          DATABASE_URL=sqlite:////tmp/contacts.db      cargo test -p contacts-service
           DATABASE_URL=sqlite:////tmp/workflows.db     cargo test -p automation-service
           DATABASE_URL=sqlite:////tmp/connections.db   cargo test -p integrations-service
           DATABASE_URL=sqlite:////tmp/opportunities.db cargo test -p opportunities-service
@@ -112,9 +106,17 @@ jobs:
           AUTH_JWT_SECRET: dev-insecure-secret-change-me
           ALLOWED_ORIGINS: http://localhost:5173
         run: |
+          TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts_test \
+          cargo test -p accounts-service
+
           TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/activities_test \
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/activities_test \
           cargo test -p activities-service
+
+          TEST_DATABASE_URL=postgres://postgres:postgres@localhost:5432/contacts_test \
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/contacts_test \
+          cargo test -p contacts-service
 
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
