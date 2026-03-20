@@ -135,7 +135,7 @@ pub async fn get_document(
     Ok(Json(row))
 }
 
-// Validates and inserts a new search document into the index, returning the created record with HTTP 201
+// Upserts a search document by entity_id — inserts on first call, updates title/body on subsequent calls
 pub async fn index_document(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -161,7 +161,12 @@ pub async fn index_document(
 
     sqlx::query(
         "INSERT INTO search_documents (id, entity_type, entity_id, title, body, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(entity_id) DO UPDATE SET
+             entity_type = excluded.entity_type,
+             title       = excluded.title,
+             body        = excluded.body,
+             updated_at  = excluded.updated_at",
     )
     .bind(&id)
     .bind(&entity_type)
@@ -174,11 +179,11 @@ pub async fn index_document(
     .await
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
-    let created = sqlx::query_as::<_, SearchDocument>(
+    let upserted = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
-         FROM search_documents WHERE id = ?",
+         FROM search_documents WHERE entity_id = ?",
     )
-    .bind(id)
+    .bind(&entity_id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -189,7 +194,30 @@ pub async fn index_document(
         )
     })?;
 
-    Ok((StatusCode::CREATED, Json(created)).into_response())
+    Ok((StatusCode::OK, Json(upserted)).into_response())
+}
+
+// Deletes a search document by the source entity's ID — idempotent, returns 204 whether or not it existed
+pub async fn delete_document_by_entity(
+    headers: HeaderMap,
+    Path(entity_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<StatusCode, Response> {
+    require_auth(&headers)?;
+
+    sqlx::query("DELETE FROM search_documents WHERE entity_id = ?")
+        .bind(entity_id)
+        .execute(&state.pool)
+        .await
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // Replaces all fields of an existing search document with the provided values

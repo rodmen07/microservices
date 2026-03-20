@@ -6,8 +6,8 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use crate::app_state::AppState;
 use crate::handlers::{
     documents::{
-        delete_document, get_document, index_document, list_documents, search_documents,
-        update_document,
+        delete_document, delete_document_by_entity, get_document, index_document, list_documents,
+        search_documents, update_document,
     },
     health::health,
 };
@@ -37,6 +37,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/search/documents",
             get(list_documents).post(index_document),
+        )
+        .route(
+            "/api/v1/search/documents/by-entity/{entity_id}",
+            axum::routing::delete(delete_document_by_entity),
         )
         .route(
             "/api/v1/search/documents/{id}",

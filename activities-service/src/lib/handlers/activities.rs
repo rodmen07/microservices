@@ -143,6 +143,17 @@ pub async fn create_activity(
         "activity.created",
         serde_json::to_value(&created).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "activity",
+        created.id.clone(),
+        created.subject.clone(),
+        format!(
+            "type: {} | notes: {}",
+            created.activity_type,
+            created.notes.as_deref().unwrap_or("-")
+        ),
+    );
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -260,6 +271,17 @@ pub async fn update_activity(
         "activity.updated",
         serde_json::to_value(&updated).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "activity",
+        updated.id.clone(),
+        updated.subject.clone(),
+        format!(
+            "type: {} | notes: {}",
+            updated.activity_type,
+            updated.notes.as_deref().unwrap_or("-")
+        ),
+    );
 
     Ok(Json(updated))
 }
@@ -291,5 +313,6 @@ pub async fn delete_activity(
         ));
     }
 
+    crate::pipeline::delete_search_document(state.http_client.clone(), id);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -323,6 +323,18 @@ pub async fn create_contact(
         "contact.created",
         serde_json::to_value(&contact).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "contact",
+        contact.id.clone(),
+        format!("{} {}", contact.first_name, contact.last_name),
+        format!(
+            "email: {} | phone: {} | stage: {}",
+            contact.email.as_deref().unwrap_or("-"),
+            contact.phone.as_deref().unwrap_or("-"),
+            contact.lifecycle_stage
+        ),
+    );
 
     (StatusCode::CREATED, Json(contact)).into_response()
 }
@@ -496,6 +508,18 @@ pub async fn update_contact(
         "contact.updated",
         serde_json::to_value(&updated).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "contact",
+        updated.id.clone(),
+        format!("{} {}", updated.first_name, updated.last_name),
+        format!(
+            "email: {} | phone: {} | stage: {}",
+            updated.email.as_deref().unwrap_or("-"),
+            updated.phone.as_deref().unwrap_or("-"),
+            updated.lifecycle_stage
+        ),
+    );
 
     Json(updated).into_response()
 }
@@ -515,7 +539,10 @@ pub async fn delete_contact(
         .execute(&state.pool)
         .await
     {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
+        Ok(result) if result.rows_affected() > 0 => {
+            crate::pipeline::delete_search_document(state.http_client.clone(), id);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(_) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("delete_contact db error: {e}");

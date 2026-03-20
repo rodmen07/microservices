@@ -158,6 +158,16 @@ pub async fn create_opportunity(
         "opportunity.created",
         serde_json::to_value(&created).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "opportunity",
+        created.id.clone(),
+        created.name.clone(),
+        format!(
+            "stage: {} | amount: {} | account_id: {}",
+            created.stage, created.amount, created.account_id
+        ),
+    );
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -262,6 +272,16 @@ pub async fn update_opportunity(
         "opportunity.updated",
         serde_json::to_value(&updated).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "opportunity",
+        updated.id.clone(),
+        updated.name.clone(),
+        format!(
+            "stage: {} | amount: {} | account_id: {}",
+            updated.stage, updated.amount, updated.account_id
+        ),
+    );
 
     Ok(Json(updated))
 }
@@ -275,7 +295,7 @@ pub async fn delete_opportunity(
     require_auth(&headers)?;
 
     let result = sqlx::query("DELETE FROM opportunities WHERE id = ?")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -294,5 +314,6 @@ pub async fn delete_opportunity(
         ));
     }
 
+    crate::pipeline::delete_search_document(state.http_client.clone(), id);
     Ok(StatusCode::NO_CONTENT)
 }

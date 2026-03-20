@@ -285,6 +285,17 @@ pub async fn create_account(
         "account.created",
         serde_json::to_value(&account).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "account",
+        account.id.clone(),
+        account.name.clone(),
+        format!(
+            "domain: {} | status: {}",
+            account.domain.as_deref().unwrap_or("-"),
+            account.status
+        ),
+    );
 
     (StatusCode::CREATED, Json(account)).into_response()
 }
@@ -401,6 +412,17 @@ pub async fn update_account(
         "account.updated",
         serde_json::to_value(&updated).unwrap_or_default(),
     );
+    crate::pipeline::index_search_document(
+        state.http_client.clone(),
+        "account",
+        updated.id.clone(),
+        updated.name.clone(),
+        format!(
+            "domain: {} | status: {}",
+            updated.domain.as_deref().unwrap_or("-"),
+            updated.status
+        ),
+    );
 
     Json(updated).into_response()
 }
@@ -420,7 +442,10 @@ pub async fn delete_account(
         .execute(&state.pool)
         .await
     {
-        Ok(result) if result.rows_affected() > 0 => StatusCode::NO_CONTENT.into_response(),
+        Ok(result) if result.rows_affected() > 0 => {
+            crate::pipeline::delete_search_document(state.http_client.clone(), id);
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(_) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "account not found"),
         Err(e) => {
             tracing::error!("delete_account db error: {e}");
