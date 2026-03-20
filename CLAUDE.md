@@ -207,7 +207,7 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 ## Roadmap
 
-### v0.4 — Language Breadth & AI Depth (In Progress)
+### v0.4 — Language Breadth & AI Depth ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
@@ -215,8 +215,13 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v0.4.2 | Django REST API (`observaboard`) | Published (2026-03-17) |
 | v0.4.3 | Go Service | Published (2026-03-17) |
 | v0.4.4 | Frontend UI Expansion (CRM CRUD, Live Feed, Search, Reports, Observaboard pages) | Published (2026-03-19) |
-| v0.4.5 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Planned |
-| v0.4.6 | search-service production upgrade (cross-domain fan-out search) | Planned |
+
+### v0.5 — Platform Completeness (Planned)
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Planned |
+| v0.5.2 | search-service production upgrade (cross-domain fan-out search) | Planned |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
