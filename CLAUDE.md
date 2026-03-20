@@ -220,8 +220,8 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Planned |
-| v0.5.2 | search-service production upgrade (cross-domain fan-out search) | Planned |
+| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Implemented |
+| v0.5.2 | search-service write-through indexing (upsert/delete from CRM services, retry logic) | Implemented |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
