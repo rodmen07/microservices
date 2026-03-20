@@ -1,3 +1,3 @@
-ALTER TABLE activities
-    ALTER COLUMN completed TYPE BOOLEAN USING (completed::boolean),
-    ALTER COLUMN completed SET DEFAULT false;
+-- completed column is already BOOLEAN NOT NULL DEFAULT false from migration 0001.
+-- SQLite does not support ALTER COLUMN TYPE; no changes needed.
+SELECT 1;
