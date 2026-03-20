@@ -11,9 +11,7 @@ use accounts_service::{build_router, AppState};
 fn test_database_url() -> String {
     std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect(
-            "set TEST_DATABASE_URL (or DATABASE_URL) to a Postgres test database URL before running integration tests",
-        )
+        .expect("set TEST_DATABASE_URL or DATABASE_URL to a SQLite URL, e.g. sqlite:////tmp/accounts.db")
 }
 
 async fn test_app() -> axum::Router {
