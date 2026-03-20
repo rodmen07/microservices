@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use contacts_service::{build_router, AppState};
+use tokio::sync::OnceCell;
 
 fn test_database_url() -> String {
     std::env::var("TEST_DATABASE_URL")
@@ -16,11 +17,17 @@ fn test_database_url() -> String {
         )
 }
 
+static TEST_STATE: OnceCell<AppState> = OnceCell::const_new();
+
 async fn test_app() -> axum::Router {
-    let state = AppState::from_database_url(&test_database_url())
-        .await
-        .expect("test database initialization failed");
-    build_router(state)
+    let state = TEST_STATE
+        .get_or_init(|| async {
+            AppState::from_database_url(&test_database_url())
+                .await
+                .expect("test database initialization failed")
+        })
+        .await;
+    build_router(state.clone())
 }
 
 fn make_jwt() -> String {
