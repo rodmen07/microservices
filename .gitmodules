@@ -1,0 +1,3 @@
+[submodule "standalones/event-stream-service"]
+	path = standalones/event-stream-service
+	url = https://github.com/rodmen07/event-stream-service.git
