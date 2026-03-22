@@ -194,7 +194,7 @@ pub async fn index_document(
         )
     })?;
 
-    Ok((StatusCode::OK, Json(upserted)).into_response())
+    Ok((StatusCode::CREATED, Json(upserted)).into_response())
 }
 
 // Deletes a search document by the source entity's ID — idempotent, returns 204 whether or not it existed
