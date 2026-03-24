@@ -6,6 +6,7 @@ members = [
     "contacts-service",
     "integrations-service",
     "opportunities-service",
+    "projects-service",
     "reporting-service",
     "search-service",
 ]

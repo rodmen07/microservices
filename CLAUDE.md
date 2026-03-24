@@ -2,15 +2,18 @@
 
 ## What this project is
 
-InfraPortal: a portfolio microservices system. Nine independently deployed services, three of which are production-grade. The others are stubs waiting to be upgraded.
+InfraPortal: a portfolio microservices system. Nine independently deployed Rust services, all production-grade with SQLite persistence and JWT authentication.
 
 **Deployed and production-grade:**
 - `task-api-service` — Rust/Axum, SQLite, JWT auth, AI planner proxy. Port 3000. The reference implementation.
 - `accounts-service` — Rust/Axum, SQLite, JWT auth. Port 3010.
 - `contacts-service` — Rust/Axum, SQLite, JWT auth, cross-service account validation. Port 3011.
-
-**Stub (in-memory HashMap, no persistence, no auth):**
-- `activities-service`, `automation-service`, `integrations-service`, `opportunities-service`, `reporting-service`, `search-service`
+- `activities-service` — Rust/Axum, SQLite, JWT auth. Port 3013.
+- `automation-service` — Rust/Axum, SQLite, JWT auth.
+- `integrations-service` — Rust/Axum, SQLite, JWT auth.
+- `opportunities-service` — Rust/Axum, SQLite, JWT auth.
+- `reporting-service` — Rust/Axum, SQLite, JWT auth, saved report CRUD, /dashboard.
+- `search-service` — Rust/Axum, SQLite, JWT auth, write-through indexing.
 
 **Non-Rust:**
 - `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
@@ -216,12 +219,22 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v0.4.3 | Go Service | Published (2026-03-17) |
 | v0.4.4 | Frontend UI Expansion (CRM CRUD, Live Feed, Search, Reports, Observaboard pages) | Published (2026-03-19) |
 
-### v0.5 — Platform Completeness (Planned)
+### v0.5 — Platform Completeness ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Implemented |
-| v0.5.2 | search-service write-through indexing (upsert/delete from CRM services, retry logic) | Implemented |
+| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Published (2026-03-23) |
+| v0.5.2 | search-service write-through indexing (upsert/delete from CRM services, retry logic) | Published (2026-03-23) |
+| v0.5.3 | activities-service production upgrade (SQLite, JWT auth, CRUD) | Published (2026-03-23) |
+| v0.5.4 | automation-service production upgrade (SQLite, JWT auth, workflow rules) | Published (2026-03-23) |
+| v0.5.5 | integrations-service production upgrade (SQLite, JWT auth, connection registry) | Published (2026-03-23) |
+| v0.5.6 | opportunities-service production upgrade (SQLite, JWT auth, stage tracking) | Published (2026-03-23) |
+
+### v1.0 — User Dashboard (Planned)
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v1.0.1 | User dashboard — scoping & design | Planned |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
@@ -243,9 +256,9 @@ Every location that must be updated when publishing a version. This list is the 
 
 ---
 
-## Upgrade checklist for a stub service
+## Service upgrade history
 
-When upgrading any of the remaining stubs, do in order:
+All nine Rust services have been upgraded from stubs to production-grade (SQLite, JWT auth, full CRUD). The upgrade followed this standard checklist:
 1. Update `Cargo.toml` — add sqlx, jsonwebtoken, chrono; upgrade axum to 0.8, tower-http to 0.6
 2. Add `[lib]` + `[[bin]]` sections to `Cargo.toml`
 3. Create `migrations/0001_create_<table>.sql`
