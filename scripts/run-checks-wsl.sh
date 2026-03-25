@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="/mnt/d/Projects/microservices"
+# Detect root based on script location so it works from /d and /mnt/d paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CONTINUE_MODE=0
 
 for arg in "$@"; do

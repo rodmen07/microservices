@@ -1,5 +1,5 @@
 ﻿param(
-    [string]$Root = "d:\Projects\microservices",
+    [string]$Root = "$(Split-Path -Parent $PSScriptRoot)",
     [switch]$SkipNodeInstall,
     [switch]$SkipRust,
     [switch]$SkipPython,
