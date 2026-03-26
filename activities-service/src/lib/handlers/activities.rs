@@ -25,10 +25,9 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -36,16 +35,16 @@ pub async fn list_activities(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Activity>>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let rows = sqlx::query_as::<_, Activity>(
-        "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed, created_at, updated_at
-         FROM activities ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| {
+    let q = if is_admin {
+        sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities ORDER BY created_at DESC")
+    } else {
+        sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE owner_id = ? ORDER BY created_at DESC").bind(&claims.sub)
+    };
+
+    let rows = q.fetch_all(&state.pool).await.map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -61,25 +60,33 @@ pub async fn get_activity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Activity>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    sqlx::query_as::<_, Activity>(
-        "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed, created_at, updated_at
-         FROM activities WHERE id = $1",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "DB_ERROR",
-            "database error",
+    let q = if is_admin {
+        sqlx::query_as::<_, Activity>(
+            "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE id = $1",
         )
-    })?
-    .map(Json)
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))
+        .bind(&id)
+    } else {
+        sqlx::query_as::<_, Activity>(
+            "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE id = $1 AND owner_id = $2",
+        )
+        .bind(&id)
+        .bind(&claims.sub)
+    };
+
+    q.fetch_optional(&state.pool)
+        .await
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?
+        .map(Json)
+        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))
 }
 
 pub async fn create_activity(
@@ -87,7 +94,8 @@ pub async fn create_activity(
     State(state): State<AppState>,
     Json(req): Json<CreateActivityRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let owner_id = claims.sub.clone();
 
     let activity_type = req.activity_type.trim().to_string();
     let subject = req.subject.trim().to_string();
@@ -105,10 +113,11 @@ pub async fn create_activity(
 
     sqlx::query(
         "INSERT INTO activities
-            (id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false, $8, $9)",
+            (id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10)",
     )
     .bind(&id)
+    .bind(&owner_id)
     .bind(&req.account_id)
     .bind(&req.contact_id)
     .bind(&activity_type)
@@ -122,7 +131,7 @@ pub async fn create_activity(
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
     let created = sqlx::query_as::<_, Activity>(
-        "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
+        "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at,
                 completed, created_at, updated_at
          FROM activities WHERE id = $1",
     )
@@ -164,24 +173,36 @@ pub async fn update_activity(
     State(state): State<AppState>,
     Json(req): Json<UpdateActivityRequest>,
 ) -> Result<Json<Activity>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let existing = sqlx::query_as::<_, Activity>(
-        "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
-                completed, created_at, updated_at
-         FROM activities WHERE id = $1",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "DB_ERROR",
-            "database error",
+    let existing = {
+        let mut q = sqlx::query_as::<_, Activity>(
+            if is_admin {
+                "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE id = $1"
+            } else {
+                "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE id = $1 AND owner_id = $2"
+            },
         )
-    })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))?;
+        .bind(&id);
+
+        if !is_admin {
+            q = q.bind(&claims.sub);
+        }
+
+        q.fetch_optional(&state.pool)
+            .await
+            .map_err(|_| {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "DB_ERROR",
+                    "database error",
+                )
+            })?
+            .ok_or_else(|| {
+                error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found")
+            })?
+    };
 
     let activity_type = match req.activity_type {
         Some(v) => {
@@ -250,7 +271,7 @@ pub async fn update_activity(
     })?;
 
     let updated = sqlx::query_as::<_, Activity>(
-        "SELECT id, account_id, contact_id, activity_type, subject, notes, due_at,
+        "SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at,
                 completed, created_at, updated_at
          FROM activities WHERE id = $1",
     )
@@ -291,19 +312,28 @@ pub async fn delete_activity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let result = sqlx::query("DELETE FROM activities WHERE id = $1")
-        .bind(&id)
-        .execute(&state.pool)
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DB_ERROR",
-                "database error",
-            )
-        })?;
+    let result = if is_admin {
+        sqlx::query("DELETE FROM activities WHERE id = $1")
+            .bind(&id)
+            .execute(&state.pool)
+            .await
+    } else {
+        sqlx::query("DELETE FROM activities WHERE id = $1 AND owner_id = $2")
+            .bind(&id)
+            .bind(&claims.sub)
+            .execute(&state.pool)
+            .await
+    }
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

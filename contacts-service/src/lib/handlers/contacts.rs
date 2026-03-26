@@ -33,11 +33,10 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -88,57 +87,67 @@ pub async fn list_contacts(
     let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    // Build query with up to three optional filters.
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    // Build query with optional filters plus ownership.
     let name_pattern = params.q.as_deref().map(|q| format!("%{}%", q));
 
-    let (rows, total) = {
-        let mut base = String::from(
-            "SELECT id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
-             FROM contacts WHERE 1=1",
-        );
-        let mut count_base = String::from("SELECT COUNT(*) FROM contacts WHERE 1=1");
+    let mut base = String::from(
+        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
+         FROM contacts WHERE 1=1",
+    );
+    let mut count_base = String::from("SELECT COUNT(*) FROM contacts WHERE 1=1");
 
-        if params.account_id.is_some() {
-            base.push_str(" AND account_id = ?");
-            count_base.push_str(" AND account_id = ?");
-        }
-        if params.lifecycle_stage.is_some() {
-            base.push_str(" AND lifecycle_stage = ?");
-            count_base.push_str(" AND lifecycle_stage = ?");
-        }
-        if name_pattern.is_some() {
-            base.push_str(
-                " AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)",
-            );
-            count_base.push_str(
-                " AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)",
-            );
-        }
-        base.push_str(" ORDER BY last_name ASC, first_name ASC LIMIT ? OFFSET ?");
+    if params.account_id.is_some() {
+        base.push_str(" AND account_id = ?");
+        count_base.push_str(" AND account_id = ?");
+    }
+    if params.lifecycle_stage.is_some() {
+        base.push_str(" AND lifecycle_stage = ?");
+        count_base.push_str(" AND lifecycle_stage = ?");
+    }
+    if name_pattern.is_some() {
+        base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
+        count_base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
+    }
+    if !is_admin || params.owner_id.is_some() {
+        base.push_str(" AND owner_id = ?");
+        count_base.push_str(" AND owner_id = ?");
+    }
 
-        // Bind parameters in the same order as the WHERE clauses.
-        let mut rows_query = sqlx::query_as::<_, Contact>(&base);
-        let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
+    base.push_str(" ORDER BY last_name ASC, first_name ASC LIMIT ? OFFSET ?");
 
-        if let Some(ref account_id) = params.account_id {
-            rows_query = rows_query.bind(account_id);
-            count_query = count_query.bind(account_id);
-        }
-        if let Some(ref stage) = params.lifecycle_stage {
-            rows_query = rows_query.bind(stage);
-            count_query = count_query.bind(stage);
-        }
-        if let Some(ref pattern) = name_pattern {
-            rows_query = rows_query.bind(pattern).bind(pattern).bind(pattern);
-            count_query = count_query.bind(pattern).bind(pattern).bind(pattern);
-        }
+    let mut rows_query = sqlx::query_as::<_, Contact>(&base);
+    let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
 
-        rows_query = rows_query.bind(limit).bind(offset);
+    if let Some(ref account_id) = params.account_id {
+        rows_query = rows_query.bind(account_id);
+        count_query = count_query.bind(account_id);
+    }
+    if let Some(ref stage) = params.lifecycle_stage {
+        rows_query = rows_query.bind(stage);
+        count_query = count_query.bind(stage);
+    }
+    if let Some(ref pattern) = name_pattern {
+        rows_query = rows_query.bind(pattern).bind(pattern).bind(pattern);
+        count_query = count_query.bind(pattern).bind(pattern).bind(pattern);
+    }
+    if !is_admin {
+        rows_query = rows_query.bind(&claims.sub);
+        count_query = count_query.bind(&claims.sub);
+    } else if let Some(owner_id) = &params.owner_id {
+        rows_query = rows_query.bind(owner_id);
+        count_query = count_query.bind(owner_id);
+    }
 
-        let rows = rows_query.fetch_all(&state.pool).await;
-        let total = count_query.fetch_one(&state.pool).await;
-        (rows, total)
-    };
+    rows_query = rows_query.bind(limit).bind(offset);
+
+    let rows = rows_query.fetch_all(&state.pool).await;
+    let total = count_query.fetch_one(&state.pool).await;
 
     let rows = match rows {
         Ok(r) => r,
@@ -179,23 +188,33 @@ pub async fn get_contact(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    let query = if is_admin {
+        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ?"
+    } else {
+        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ? AND owner_id = ?"
+    };
+
+    let mut q = sqlx::query_as::<_, Contact>(query).bind(&id);
+    if !is_admin {
+        q = q.bind(&claims.sub);
     }
 
-    match sqlx::query_as::<_, Contact>(
-        "SELECT id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
-         FROM contacts WHERE id = ?",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    {
+    match q.fetch_optional(&state.pool).await {
         Ok(Some(contact)) => Json(contact).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("get_contact db error: {e}");
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
         }
     }
 }
@@ -279,14 +298,21 @@ pub async fn create_contact(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let owner_id = claims.sub.clone();
+
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "INSERT INTO contacts (id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO contacts (id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
+    .bind(&owner_id)
     .bind(account_id)
     .bind(&first_name)
     .bind(&last_name)
@@ -307,6 +333,7 @@ pub async fn create_contact(
 
     let contact = Contact {
         id,
+        owner_id,
         account_id: account_id.map(str::to_string),
         first_name,
         last_name,
@@ -346,23 +373,39 @@ pub async fn update_contact(
     State(state): State<AppState>,
     Json(body): Json<UpdateContactRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let existing = match sqlx::query_as::<_, Contact>(
-        "SELECT id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at
-         FROM contacts WHERE id = ?",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    {
+    let existing = {
+        let mut q = sqlx::query_as::<_, Contact>(
+            if is_admin {
+                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ?"
+            } else {
+                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ? AND owner_id = ?"
+            },
+        )
+        .bind(&id);
+
+        if !is_admin {
+            q = q.bind(&claims.sub);
+        }
+
+        q.fetch_optional(&state.pool).await
+    };
+
+    let existing = match existing {
         Ok(Some(c)) => c,
         Ok(None) => return error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("update_contact fetch error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     };
 
@@ -492,6 +535,7 @@ pub async fn update_contact(
 
     let updated = Contact {
         id: existing.id,
+        owner_id: existing.owner_id,
         account_id: new_account_id,
         first_name,
         last_name,
@@ -530,15 +574,26 @@ pub async fn delete_contact(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    match sqlx::query("DELETE FROM contacts WHERE id = ?")
-        .bind(&id)
-        .execute(&state.pool)
-        .await
-    {
+    let deletion = if is_admin {
+        sqlx::query("DELETE FROM contacts WHERE id = ?")
+            .bind(&id)
+            .execute(&state.pool)
+            .await
+    } else {
+        sqlx::query("DELETE FROM contacts WHERE id = ? AND owner_id = ?")
+            .bind(&id)
+            .bind(&claims.sub)
+            .execute(&state.pool)
+            .await
+    };
+
+    match deletion {
         Ok(result) if result.rows_affected() > 0 => {
             crate::pipeline::delete_search_document(state.http_client.clone(), id);
             StatusCode::NO_CONTENT.into_response()

@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -24,10 +26,9 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -35,17 +36,34 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
 pub async fn list_opportunities(
     headers: HeaderMap,
     State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Opportunity>>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let rows = sqlx::query_as::<_, Opportunity>(
-        "SELECT id, account_id, name, stage, amount,
-                close_date, created_at, updated_at
-         FROM opportunities ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.pool)
-    .await
-    .map_err(|_| {
+    let (query, qs) = if is_admin {
+        let base = "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities";
+        if let Some(owner_id) = params.get("owner_id") {
+            (
+                format!("{} WHERE owner_id = ? ORDER BY created_at DESC", base),
+                Some(owner_id.clone()),
+            )
+        } else {
+            (format!("{} ORDER BY created_at DESC", base), None)
+        }
+    } else {
+        (
+            "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE owner_id = ? ORDER BY created_at DESC".to_string(),
+            Some(claims.sub.clone()),
+        )
+    };
+
+    let mut query_obj = sqlx::query_as::<_, Opportunity>(&query);
+    if let Some(owner_id) = qs {
+        query_obj = query_obj.bind(owner_id);
+    }
+
+    let rows = query_obj.fetch_all(&state.pool).await.map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -62,24 +80,28 @@ pub async fn get_opportunity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Opportunity>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let row = sqlx::query_as::<_, Opportunity>(
-        "SELECT id, account_id, name, stage, amount,
-                close_date, created_at, updated_at
-         FROM opportunities WHERE id = ?",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "DB_ERROR",
-            "database error",
-        )
-    })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "opportunity not found"))?;
+    let q = if is_admin {
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ?").bind(id)
+    } else {
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ? AND owner_id = ?").bind(id).bind(&claims.sub)
+    };
+
+    let row = q
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?
+        .ok_or_else(|| {
+            error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "opportunity not found")
+        })?;
 
     Ok(Json(row))
 }
@@ -90,7 +112,8 @@ pub async fn create_opportunity(
     State(state): State<AppState>,
     Json(req): Json<CreateOpportunityRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let owner_id = claims.sub.clone();
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
@@ -121,10 +144,11 @@ pub async fn create_opportunity(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "INSERT INTO opportunities (id, account_id, name, stage, amount, close_date, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO opportunities (id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
+    .bind(&owner_id)
     .bind(&req.account_id)
     .bind(&name)
     .bind(&stage)
@@ -137,7 +161,7 @@ pub async fn create_opportunity(
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
     let created = sqlx::query_as::<_, Opportunity>(
-        "SELECT id, account_id, name, stage, amount,
+        "SELECT id, owner_id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
     )
@@ -179,16 +203,25 @@ pub async fn update_opportunity(
     State(state): State<AppState>,
     Json(req): Json<UpdateOpportunityRequest>,
 ) -> Result<Json<Opportunity>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let existing = sqlx::query_as::<_, Opportunity>(
-        "SELECT id, account_id, name, stage, amount,
-                close_date, created_at, updated_at
-         FROM opportunities WHERE id = ?",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
+    let existing = {
+        let mut q = sqlx::query_as::<_, Opportunity>(
+            if is_admin {
+                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ?"
+            } else {
+                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ? AND owner_id = ?"
+            },
+        )
+        .bind(&id);
+
+        if !is_admin {
+            q = q.bind(&claims.sub);
+        }
+
+        q.fetch_optional(&state.pool).await
+    }
     .map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -251,7 +284,7 @@ pub async fn update_opportunity(
     .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
 
     let updated = sqlx::query_as::<_, Opportunity>(
-        "SELECT id, account_id, name, stage, amount,
+        "SELECT id, owner_id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = ?",
     )
@@ -292,19 +325,28 @@ pub async fn delete_opportunity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let result = sqlx::query("DELETE FROM opportunities WHERE id = ?")
-        .bind(&id)
-        .execute(&state.pool)
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DB_ERROR",
-                "database error",
-            )
-        })?;
+    let result = if is_admin {
+        sqlx::query("DELETE FROM opportunities WHERE id = ?")
+            .bind(&id)
+            .execute(&state.pool)
+            .await
+    } else {
+        sqlx::query("DELETE FROM opportunities WHERE id = ? AND owner_id = ?")
+            .bind(&id)
+            .bind(&claims.sub)
+            .execute(&state.pool)
+            .await
+    }
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

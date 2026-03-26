@@ -9,6 +9,8 @@ use tower::ServiceExt;
 use opportunities_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
+    std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
+
     let state = AppState::from_database_url("sqlite::memory:")
         .await
         .expect("in-memory DB failed");
