@@ -9,6 +9,7 @@ pub const VALID_LIFECYCLE_STAGES: &[&str] =
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Contact {
     pub id: String,
+    pub owner_id: String,
     pub account_id: Option<String>,
     pub first_name: String,
     pub last_name: String,
@@ -46,6 +47,7 @@ pub struct ListContactsQuery {
     pub account_id: Option<String>,
     pub lifecycle_stage: Option<String>,
     pub q: Option<String>,
+    pub owner_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

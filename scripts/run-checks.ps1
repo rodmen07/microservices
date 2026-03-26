@@ -13,7 +13,7 @@ function Step($msg) {
     Write-Host "`n==> $msg" -ForegroundColor Cyan
 }
 
-function Run-Cmd($cmd, $context) {
+function Invoke-Cmd($cmd, $context) {
     Write-Host "   $cmd" -ForegroundColor DarkGray
     Invoke-Expression $cmd
     if ($LASTEXITCODE -ne 0) {
@@ -31,22 +31,22 @@ function Test-CommandExists($name) {
     return $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
 }
 
-function Run-RustChecks($servicePath) {
+function Invoke-RustChecks($servicePath) {
     if (-not (Test-Path (Join-Path $servicePath "Cargo.toml"))) { return }
     $context = "Rust $servicePath"
     Step "Rust checks: $servicePath"
     Push-Location $servicePath
     try {
-        Run-Cmd "cargo fmt --all" $context
-        Run-Cmd "cargo clippy --all-targets --all-features -- -D warnings" $context
-        Run-Cmd "cargo test" $context
+        Invoke-Cmd "cargo fmt --all" $context
+        Invoke-Cmd "cargo clippy --all-targets --all-features -- -D warnings" $context
+        Invoke-Cmd "cargo test" $context
     }
     finally {
         Pop-Location
     }
 }
 
-function Run-PythonChecks($servicePath) {
+function Invoke-PythonChecks($servicePath) {
     if (-not (Test-Path $servicePath)) { return }
     if (-not (Test-CommandExists "python")) {
         Write-Warning "python not found; skipping Python tests for $servicePath"
@@ -60,14 +60,14 @@ function Run-PythonChecks($servicePath) {
     Step "Python checks: $servicePath"
     Push-Location $servicePath
     try {
-        Run-Cmd "pytest" $context
+        Invoke-Cmd "pytest" $context
     }
     finally {
         Pop-Location
     }
 }
 
-function Run-FrontendChecks($servicePath) {
+function Invoke-FrontendChecks($servicePath) {
     if (-not (Test-Path $servicePath)) { return }
     if (-not (Test-Path (Join-Path $servicePath "package.json"))) { return }
     if (-not (Test-CommandExists "npm")) {
@@ -80,9 +80,9 @@ function Run-FrontendChecks($servicePath) {
     Push-Location $servicePath
     try {
         if (-not $SkipNodeInstall) {
-            Run-Cmd "npm install" $context
+            Invoke-Cmd "npm install" $context
         }
-        Run-Cmd "npm run build" $context
+        Invoke-Cmd "npm run build" $context
     }
     finally {
         Pop-Location
@@ -138,17 +138,17 @@ $rustServices = @(
 
 if (-not $SkipRust) {
     foreach ($svc in $rustServices) {
-        Run-RustChecks (Join-Path $Root $svc)
+        Invoke-RustChecks (Join-Path $Root $svc)
     }
 }
 
 if (-not $SkipPython) {
-    Run-PythonChecks (Join-Path $Root "standalones\ai-orchestrator-service")
-    Run-PythonChecks (Join-Path $Root "standalones\auth-service")
+    Invoke-PythonChecks (Join-Path $Root "standalones\ai-orchestrator-service")
+    Invoke-PythonChecks (Join-Path $Root "standalones\auth-service")
 }
 
 if (-not $SkipFrontend) {
-    Run-FrontendChecks (Join-Path $Root "standalones\frontend-service")
+    Invoke-FrontendChecks (Join-Path $Root "standalones\frontend-service")
 }
 
 Step "All checks completed"
