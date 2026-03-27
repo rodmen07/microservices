@@ -9,13 +9,16 @@ use tower::ServiceExt;
 use reporting_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
+    // Ensure auth secret matches the test token signer.
+    std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
+
     let state = AppState::from_database_url("sqlite::memory:")
         .await
         .expect("in-memory DB failed");
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt_with_roles(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -23,7 +26,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -34,6 +37,14 @@ fn make_jwt() -> String {
     .unwrap();
 
     format!("Bearer {token}")
+}
+
+fn make_jwt() -> String {
+    make_jwt_with_roles(&[])
+}
+
+fn make_admin_jwt() -> String {
+    make_jwt_with_roles(&["admin"])
 }
 
 async fn body_json(body: Body) -> Value {
@@ -84,6 +95,65 @@ async fn dashboard_summary_requires_auth() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn dashboard_view_endpoint_user_and_admin() {
+    let app = test_app().await;
+    let user_auth = make_jwt();
+    let admin_auth = make_admin_jwt();
+
+    // create one metric with current user marker
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/reports")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &admin_auth)
+                .body(Body::from(
+                    json!({"name": "User Report", "metric": "test-user"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(create_resp.status(), StatusCode::CREATED);
+
+    // user fetch should include at least 1 report via metric match
+    let user_dash = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/dashboard")
+                .header(header::AUTHORIZATION, &user_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(user_dash.status(), StatusCode::OK);
+
+    let user_body = body_json(user_dash.into_body()).await;
+    assert!(user_body["reports"].as_i64().unwrap() >= 1);
+
+    // admin query for specific user_id should include same reports count
+    let admin_dash = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/dashboard?user_id=test-user")
+                .header(header::AUTHORIZATION, &admin_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(admin_dash.status(), StatusCode::OK);
+    let admin_body = body_json(admin_dash.into_body()).await;
+    assert!(admin_body["reports"].as_i64().unwrap() >= 1);
 }
 
 #[tokio::test]

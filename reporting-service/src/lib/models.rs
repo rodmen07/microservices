@@ -31,6 +31,18 @@ pub struct DashboardSummary {
     pub core_metrics: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DashboardView {
+    pub accounts: Option<i64>,
+    pub contacts: Option<i64>,
+    pub opportunities: Option<i64>,
+    pub activities: Option<i64>,
+    pub reports: i64,
+    pub core_metrics: Vec<String>,
+    pub stage_distribution: Option<std::collections::HashMap<String, i64>>,
+    pub recent_activities: Option<Vec<serde_json::Value>>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateReportRequest {
     pub name: String,

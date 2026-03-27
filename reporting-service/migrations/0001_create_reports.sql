@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS reports (
     description TEXT,
     metric      TEXT NOT NULL,
     dimension   TEXT,
+    owner_id    TEXT NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );

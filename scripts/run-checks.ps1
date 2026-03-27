@@ -35,11 +35,19 @@ function Invoke-RustChecks($servicePath) {
     if (-not (Test-Path (Join-Path $servicePath "Cargo.toml"))) { return }
     $context = "Rust $servicePath"
     Step "Rust checks: $servicePath"
+
+    $svcTarget = Join-Path $servicePath 'target'
+    if (-not (Test-Path $svcTarget)) { New-Item -ItemType Directory -Path $svcTarget | Out-Null }
+    $svcDb = Join-Path $svcTarget 'test.db'
+    $databaseUrl = $svcDb -replace '\\', '/'
+    if ($databaseUrl -match '^[A-Za-z]:') { $databaseUrl = '/' + $databaseUrl }
+    $env:TEST_DATABASE_URL = "sqlite:///$databaseUrl"
+
     Push-Location $servicePath
     try {
         Invoke-Cmd "cargo fmt --all" $context
         Invoke-Cmd "cargo clippy --all-targets --all-features -- -D warnings" $context
-        Invoke-Cmd "cargo test" $context
+        Invoke-Cmd "cargo test -- --test-threads=1" $context
     }
     finally {
         Pop-Location
@@ -136,6 +144,18 @@ $rustServices = @(
     "standalones\backend-service"
 )
 
+# Pass common environment variables into Rust service tests so SQLite tests do not fail unexpectedly.
+if (-not $env:AUTH_JWT_SECRET) { $env:AUTH_JWT_SECRET = 'dev-insecure-secret-change-me' }
+if (-not $env:TEST_DATABASE_URL) {
+    $workDir = (Get-Location).Path
+    $dbDir = Join-Path $workDir 'target'
+    if (-not (Test-Path $dbDir)) { New-Item -ItemType Directory -Path $dbDir | Out-Null }
+    $dbFile = Join-Path $dbDir 'tests.sqlite'
+    $dbFilePath = $dbFile -replace '\\', '/'
+    if ($dbFilePath -match '^[A-Za-z]:') { $dbFilePath = '/' + $dbFilePath }
+    $env:TEST_DATABASE_URL = "sqlite:///$dbFilePath"
+}
+
 if (-not $SkipRust) {
     foreach ($svc in $rustServices) {
         Invoke-RustChecks (Join-Path $Root $svc)
@@ -143,12 +163,12 @@ if (-not $SkipRust) {
 }
 
 if (-not $SkipPython) {
-    Invoke-PythonChecks (Join-Path $Root "standalones\ai-orchestrator-service")
-    Invoke-PythonChecks (Join-Path $Root "standalones\auth-service")
+    Invoke-PythonChecks (Join-Path $Root "ai-orchestrator-service")
+    Invoke-PythonChecks (Join-Path $Root "auth-service")
 }
 
 if (-not $SkipFrontend) {
-    Invoke-FrontendChecks (Join-Path $Root "standalones\frontend-service")
+    Invoke-FrontendChecks (Join-Path $Root "frontend-service")
 }
 
 Step "All checks completed"
