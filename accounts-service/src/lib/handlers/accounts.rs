@@ -31,11 +31,10 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
 
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -50,90 +49,64 @@ pub async fn list_accounts(
     State(state): State<AppState>,
     Query(params): Query<ListAccountsQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    // Build dynamic query with optional filters.
-    let (rows, total) = match (&params.status, &params.q) {
-        (Some(status), Some(q)) => {
-            let pattern = format!("%{}%", q);
-            let rows = sqlx::query_as::<_, Account>(
-                "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts
-                 WHERE status = ? AND name LIKE ?
-                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
-            )
-            .bind(status)
-            .bind(&pattern)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await;
-            let total = sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM accounts WHERE status = ? AND name LIKE ?",
-            )
-            .bind(status)
-            .bind(&pattern)
-            .fetch_one(&state.pool)
-            .await;
-            (rows, total)
-        }
-        (Some(status), None) => {
-            let rows = sqlx::query_as::<_, Account>(
-                "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts WHERE status = ?
-                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
-            )
-            .bind(status)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await;
-            let total =
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE status = ?")
-                    .bind(status)
-                    .fetch_one(&state.pool)
-                    .await;
-            (rows, total)
-        }
-        (None, Some(q)) => {
-            let pattern = format!("%{}%", q);
-            let rows = sqlx::query_as::<_, Account>(
-                "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts WHERE name LIKE ?
-                 ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
-            )
-            .bind(&pattern)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await;
-            let total =
-                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts WHERE name LIKE ?")
-                    .bind(&pattern)
-                    .fetch_one(&state.pool)
-                    .await;
-            (rows, total)
-        }
-        (None, None) => {
-            let rows = sqlx::query_as::<_, Account>(
-                "SELECT id, name, domain, status, created_at, updated_at
-                 FROM accounts ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?",
-            )
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&state.pool)
-            .await;
-            let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM accounts")
-                .fetch_one(&state.pool)
-                .await;
-            (rows, total)
-        }
-    };
+    // Build dynamic query with optional filters and user scoping.
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+    let mut where_clauses = Vec::new();
+    let mut params_vec: Vec<String> = Vec::new();
+
+    if let Some(status) = &params.status {
+        where_clauses.push("status = ?".to_string());
+        params_vec.push(status.clone());
+    }
+
+    if let Some(q) = &params.q {
+        where_clauses.push("name LIKE ?".to_string());
+        params_vec.push(format!("%{}%", q));
+    }
+
+    if !is_admin {
+        where_clauses.push("owner_id = ?".to_string());
+        params_vec.push(claims.sub.clone());
+    } else if let Some(owner_id) = &params.owner_id {
+        where_clauses.push("owner_id = ?".to_string());
+        params_vec.push(owner_id.clone());
+    }
+
+    let mut query_base =
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts"
+            .to_string();
+    let mut count_base = "SELECT COUNT(*) FROM accounts".to_string();
+
+    if !where_clauses.is_empty() {
+        let where_stmt = format!(" WHERE {}", where_clauses.join(" AND "));
+        query_base.push_str(&where_stmt);
+        count_base.push_str(&where_stmt);
+    }
+
+    // Stable deterministic ordering prevents pagination overlap when multiple
+    // rows share the same created_at value.
+    query_base.push_str(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
+
+    let mut rows_query = sqlx::query_as::<_, Account>(&query_base);
+    let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
+
+    for val in &params_vec {
+        rows_query = rows_query.bind(val);
+        count_query = count_query.bind(val);
+    }
+
+    rows_query = rows_query.bind(limit).bind(offset);
+
+    let rows = rows_query.fetch_all(&state.pool).await;
+    let total = count_query.fetch_one(&state.pool).await;
 
     let rows = match rows {
         Ok(r) => r,
@@ -174,17 +147,25 @@ pub async fn get_account(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
+    let claims = match require_auth(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
+
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    let query = if is_admin {
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?"
+    } else {
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ? AND owner_id = ?"
+    };
+
+    let mut q = sqlx::query_as::<_, Account>(query).bind(&id);
+    if !is_admin {
+        q = q.bind(&claims.sub);
     }
 
-    match sqlx::query_as::<_, Account>(
-        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    {
+    match q.fetch_optional(&state.pool).await {
         Ok(Some(account)) => Json(account).into_response(),
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "account not found"),
         Err(e) => {
@@ -243,14 +224,21 @@ pub async fn create_account(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
+    let claims = match require_auth(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
+
+    let owner_id = claims.sub.clone();
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "INSERT INTO accounts (id, name, domain, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO accounts (id, owner_id, name, domain, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
+    .bind(&owner_id)
     .bind(&name)
     .bind(&domain)
     .bind(&status)
@@ -272,6 +260,7 @@ pub async fn create_account(
 
     let account = Account {
         id,
+        owner_id,
         name,
         domain,
         status,
@@ -307,13 +296,16 @@ pub async fn update_account(
     State(state): State<AppState>,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
+
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     // Fetch existing account first.
     let existing = match sqlx::query_as::<_, Account>(
-        "SELECT id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -330,6 +322,10 @@ pub async fn update_account(
             );
         }
     };
+
+    if !is_admin && existing.owner_id != claims.sub {
+        return error_response(StatusCode::FORBIDDEN, "FORBIDDEN", "not allowed");
+    }
 
     let name = match body.name.as_deref().map(str::trim) {
         Some("") => {
@@ -399,6 +395,7 @@ pub async fn update_account(
 
     let updated = Account {
         id: existing.id,
+        owner_id: existing.owner_id,
         name,
         domain,
         status,
@@ -433,15 +430,26 @@ pub async fn delete_account(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    match sqlx::query("DELETE FROM accounts WHERE id = ?")
-        .bind(&id)
-        .execute(&state.pool)
-        .await
-    {
+    let result = if is_admin {
+        sqlx::query("DELETE FROM accounts WHERE id = ?")
+            .bind(&id)
+            .execute(&state.pool)
+            .await
+    } else {
+        sqlx::query("DELETE FROM accounts WHERE id = ? AND owner_id = ?")
+            .bind(&id)
+            .bind(&claims.sub)
+            .execute(&state.pool)
+            .await
+    };
+
+    match result {
         Ok(result) if result.rows_affected() > 0 => {
             crate::pipeline::delete_search_document(state.http_client.clone(), id);
             StatusCode::NO_CONTENT.into_response()

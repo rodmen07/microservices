@@ -53,7 +53,13 @@ async fn require_project_access(
     .bind(project_id)
     .fetch_optional(pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
 
     if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
@@ -84,7 +90,13 @@ pub async fn list_milestones(
     .bind(&project_id)
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(rows))
 }
@@ -107,7 +119,13 @@ pub async fn create_milestone(
     .bind(&project_id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
 
     let name = req.name.trim().to_string();
@@ -155,7 +173,13 @@ pub async fn create_milestone(
     .bind(&now)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let created = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
@@ -165,7 +189,13 @@ pub async fn create_milestone(
     .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -187,7 +217,13 @@ pub async fn update_milestone(
     .bind(&id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "milestone not found"))?;
 
     let name = match req.name {
@@ -244,7 +280,13 @@ pub async fn update_milestone(
     .bind(&id)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let updated = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
@@ -254,7 +296,13 @@ pub async fn update_milestone(
     .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(updated))
 }
@@ -271,7 +319,13 @@ pub async fn delete_milestone(
         .bind(&id)
         .execute(&state.pool)
         .await
-        .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            )
+        })?;
 
     if result.rows_affected() == 0 {
         return Err(error_response(

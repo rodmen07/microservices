@@ -41,7 +41,13 @@ async fn require_project_access(
     .bind(project_id)
     .fetch_optional(pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
 
     if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
@@ -69,7 +75,13 @@ pub async fn list_messages(
     .bind(&project_id)
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(rows))
 }
@@ -113,7 +125,13 @@ pub async fn create_message(
     .bind(&now)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     let created = sqlx::query_as::<_, Message>(
         "SELECT id, project_id, author_id, author_role, body, created_at
@@ -122,7 +140,13 @@ pub async fn create_message(
     .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }

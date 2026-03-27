@@ -35,10 +35,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/ready", get(health))
         // Projects
-        .route(
-            "/api/v1/projects",
-            get(list_projects).post(create_project),
-        )
+        .route("/api/v1/projects", get(list_projects).post(create_project))
         .route(
             "/api/v1/projects/{id}",
             get(get_project)

@@ -17,6 +17,7 @@ pub struct ApiError {
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct Opportunity {
     pub id: String,
+    pub owner_id: String,
     pub account_id: String,
     pub name: String,
     pub stage: String,

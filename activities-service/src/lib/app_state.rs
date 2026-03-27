@@ -1,4 +1,7 @@
-use sqlx::{sqlite::{SqliteConnectOptions, SqlitePoolOptions}, SqlitePool};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
 use std::str::FromStr;
 
 #[derive(Clone)]
@@ -10,8 +13,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> {
-        let opts = SqliteConnectOptions::from_str(database_url)?
-            .create_if_missing(true);
+        let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)

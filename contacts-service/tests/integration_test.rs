@@ -7,27 +7,26 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use contacts_service::{build_router, AppState};
-use tokio::sync::OnceCell;
+use uuid::Uuid;
 
 fn test_database_url() -> String {
-    std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect(
-            "set TEST_DATABASE_URL or DATABASE_URL to a SQLite URL, e.g. sqlite:////tmp/<service>.db",
-        )
+    if let Ok(test_url) = std::env::var("TEST_DATABASE_URL") {
+        return test_url;
+    }
+    if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        return db_url;
+    }
+
+    let temp_file = std::env::temp_dir().join(format!("contacts_test_{}.db", Uuid::new_v4()));
+    format!("sqlite://{}", temp_file.display())
 }
 
-static TEST_STATE: OnceCell<AppState> = OnceCell::const_new();
-
 async fn test_app() -> axum::Router {
-    let state = TEST_STATE
-        .get_or_init(|| async {
-            AppState::from_database_url(&test_database_url())
-                .await
-                .expect("test database initialization failed")
-        })
-        .await;
-    build_router(state.clone())
+    let database_url = test_database_url();
+    let state = AppState::from_database_url(&database_url)
+        .await
+        .expect("test database initialization failed");
+    build_router(state)
 }
 
 fn make_jwt() -> String {

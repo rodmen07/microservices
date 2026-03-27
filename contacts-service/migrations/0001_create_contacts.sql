@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS contacts (
     id               TEXT    PRIMARY KEY NOT NULL,
+    owner_id         TEXT    NOT NULL,
     account_id       TEXT,
     first_name       TEXT    NOT NULL,
     last_name        TEXT    NOT NULL,
@@ -9,6 +10,10 @@ CREATE TABLE IF NOT EXISTS contacts (
     created_at       TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
     updated_at       TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_contacts_owner_id ON contacts(owner_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_account_id ON contacts(account_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
 
 CREATE INDEX IF NOT EXISTS idx_contacts_account_id ON contacts(account_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);

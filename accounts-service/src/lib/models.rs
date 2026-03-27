@@ -8,6 +8,7 @@ pub const VALID_STATUSES: &[&str] = &["active", "inactive", "churned"];
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Account {
     pub id: String,
+    pub owner_id: String,
     pub name: String,
     pub domain: Option<String>,
     pub status: String,
@@ -35,6 +36,7 @@ pub struct ListAccountsQuery {
     pub offset: Option<u32>,
     pub status: Option<String>,
     pub q: Option<String>,
+    pub owner_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

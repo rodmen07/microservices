@@ -45,13 +45,22 @@ pub fn index_search_document(
     });
     tokio::spawn(async move {
         for attempt in 0..3u8 {
-            match client.post(&url).bearer_auth(&token).json(&payload).send().await {
+            match client
+                .post(&url)
+                .bearer_auth(&token)
+                .json(&payload)
+                .send()
+                .await
+            {
                 Ok(r) if r.status().is_success() => return,
                 Ok(r) => tracing::warn!("search index attempt {attempt}: status {}", r.status()),
                 Err(e) => tracing::warn!("search index attempt {attempt}: {e}"),
             }
         }
-        tracing::error!("search index failed after 3 attempts for entity_id={}", payload["entity_id"]);
+        tracing::error!(
+            "search index failed after 3 attempts for entity_id={}",
+            payload["entity_id"]
+        );
     });
 }
 
@@ -77,6 +86,9 @@ pub fn delete_search_document(client: reqwest::Client, entity_id: String) {
                 Err(e) => tracing::warn!("search delete attempt {attempt}: {e}"),
             }
         }
-        tracing::error!("search delete failed after 3 attempts for entity_id={}", entity_id);
+        tracing::error!(
+            "search delete failed after 3 attempts for entity_id={}",
+            entity_id
+        );
     });
 }
