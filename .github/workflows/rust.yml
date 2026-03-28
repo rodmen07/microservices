@@ -120,30 +120,38 @@ jobs:
           - service: accounts-service
             dockerfile: accounts-service/Dockerfile
             cloud_run_service: accounts-service
+            db_name: accounts
           - service: contacts-service
             dockerfile: contacts-service/Dockerfile
             cloud_run_service: contacts-service
+            db_name: contacts
           - service: activities-service
             dockerfile: activities-service/Dockerfile
             cloud_run_service: activities-service
+            db_name: activities
           - service: automation-service
             dockerfile: automation-service/Dockerfile
             cloud_run_service: automation-service
+            db_name: workflows
           - service: integrations-service
             dockerfile: integrations-service/Dockerfile
             cloud_run_service: integrations-service
+            db_name: connections
           - service: opportunities-service
             dockerfile: opportunities-service/Dockerfile
             cloud_run_service: opportunities-service
+            db_name: opportunities
           - service: reporting-service
             dockerfile: reporting-service/Dockerfile
             cloud_run_service: reporting-service
+            db_name: reports
           - service: search-service
             dockerfile: search-service/Dockerfile
             cloud_run_service: search-service
+            db_name: documents
 
     env:
-      GCP_REGION: us-south1
+      GCP_REGION: us-central1
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
 
     steps:
@@ -211,4 +219,13 @@ jobs:
             --image "$IMAGE" \
             --region "${{ env.GCP_REGION }}" \
             --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --memory 512Mi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 3 \
+            --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+            --set-env-vars "DATABASE_URL=sqlite:////tmp/${{ matrix.db_name }}.db,AUTH_JWT_ALGORITHM=HS256,AUTH_ISSUER=auth-service,ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
+            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest" \
             --quiet
