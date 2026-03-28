@@ -227,6 +227,6 @@ jobs:
             --min-instances 0 \
             --max-instances 3 \
             --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
-            --set-env-vars "DATABASE_URL=sqlite:////tmp/${{ matrix.db_name }}.db,AUTH_JWT_ALGORITHM=HS256,AUTH_ISSUER=auth-service,ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
+            --set-env-vars "^#^DATABASE_URL=sqlite:////tmp/${{ matrix.db_name }}.db#AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
             --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest" \
             --quiet
