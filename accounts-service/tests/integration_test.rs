@@ -532,11 +532,13 @@ async fn list_accounts_pagination_limit_and_offset() {
             .unwrap();
     }
 
+    // Filter by name prefix so parallel tests inserting other accounts don't
+    // shift the result set between the two page queries.
     let page1 = body_json(
         app.clone()
             .oneshot(
                 Request::builder()
-                    .uri("/api/v1/accounts?limit=2&offset=0")
+                    .uri("/api/v1/accounts?limit=2&offset=0&q=Page+Account")
                     .header(header::AUTHORIZATION, &auth)
                     .body(Body::empty())
                     .unwrap(),
@@ -550,7 +552,7 @@ async fn list_accounts_pagination_limit_and_offset() {
     let page2 = body_json(
         app.oneshot(
             Request::builder()
-                .uri("/api/v1/accounts?limit=2&offset=2")
+                .uri("/api/v1/accounts?limit=2&offset=2&q=Page+Account")
                 .header(header::AUTHORIZATION, &auth)
                 .body(Body::empty())
                 .unwrap(),
