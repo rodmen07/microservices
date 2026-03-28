@@ -220,7 +220,6 @@ jobs:
             --image "$IMAGE" \
             --region "${{ env.GCP_REGION }}" \
             --platform managed \
-            --allow-unauthenticated \
             --port 8080 \
             --memory 512Mi \
             --cpu 1 \
@@ -230,3 +229,11 @@ jobs:
             --set-env-vars "^#^DATABASE_URL=sqlite:////tmp/${{ matrix.db_name }}.db#AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
             --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest" \
             --quiet
+
+      - name: Allow unauthenticated access
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          gcloud run services add-iam-policy-binding "${{ matrix.cloud_run_service }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --member="allUsers" \
+            --role="roles/run.invoker"

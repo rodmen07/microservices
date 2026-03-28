@@ -1,4 +1,4 @@
-FROM rust:1.85-bookworm AS builder
+FROM rust:latest AS builder
 WORKDIR /app
 COPY . .
 RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
