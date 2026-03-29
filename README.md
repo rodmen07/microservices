@@ -1,6 +1,6 @@
 # Microservices Workspace Specification
 
-**Live site:** https://rodmen07.github.io/frontend-service/
+**Live site:** https://rodmen07.github.io/infraportal/
 
 This folder contains a multi-service ecosystem:
 

@@ -230,11 +230,15 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v0.5.5 | integrations-service production upgrade (SQLite, JWT auth, connection registry) | Published (2026-03-23) |
 | v0.5.6 | opportunities-service production upgrade (SQLite, JWT auth, stage tracking) | Published (2026-03-23) |
 
-### v1.0 — User Dashboard (Planned)
+### v1.0 — Client Portal ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v1.0.1 | User dashboard — scoping & design | Planned |
+| v1.0.1 | projects-service — Rust/Axum client portal API (projects, milestones, deliverables) | Published (2026-03-29) |
+| v1.0.2 | go-gateway — Go API gateway deployed to GCP Cloud Run | Published (2026-03-29) |
+| v1.0.3 | GCP Cloud Run migration — 11 services (OIDC + WIF, Artifact Registry, Secret Manager) | Published (2026-03-29) |
+| v1.0.4 | OAuth flows — GitHub + Google client portal sign-in with client-role JWT | Published (2026-03-29) |
+| v1.0.5 | Admin provisioning UI — create projects, milestones, deliverables; assign to client users | Published (2026-03-29) |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
