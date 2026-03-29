@@ -10,13 +10,6 @@ use contacts_service::{build_router, AppState};
 use uuid::Uuid;
 
 fn test_database_url() -> String {
-    if let Ok(test_url) = std::env::var("TEST_DATABASE_URL") {
-        return test_url;
-    }
-    if let Ok(db_url) = std::env::var("DATABASE_URL") {
-        return db_url;
-    }
-
     let temp_file = std::env::temp_dir().join(format!("contacts_test_{}.db", Uuid::new_v4()));
     format!("sqlite://{}", temp_file.display())
 }

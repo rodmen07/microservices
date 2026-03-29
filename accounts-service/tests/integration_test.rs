@@ -7,11 +7,14 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use accounts_service::{build_router, AppState};
+use uuid::Uuid;
 
 fn test_database_url() -> String {
-    std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set TEST_DATABASE_URL or DATABASE_URL to a SQLite URL, e.g. sqlite:////tmp/accounts.db")
+    let path = std::env::temp_dir().join(format!(
+        "accounts_test_{}.db",
+        Uuid::new_v4().simple()
+    ));
+    format!("sqlite://{}", path.display())
 }
 
 async fn test_app() -> axum::Router {
