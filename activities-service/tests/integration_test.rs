@@ -7,14 +7,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use activities_service::{build_router, AppState};
-use uuid::Uuid;
-
 fn test_database_url() -> String {
-    let path = std::env::temp_dir().join(format!(
-        "activities_test_{}.db",
-        Uuid::new_v4().simple()
-    ));
-    format!("sqlite://{}", path.display())
+    std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/activities".to_string())
 }
 
 async fn test_app() -> axum::Router {

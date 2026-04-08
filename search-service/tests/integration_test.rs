@@ -9,9 +9,11 @@ use tower::ServiceExt;
 use search_service::{build_router, AppState};
 
 async fn test_app() -> axum::Router {
-    let state = AppState::from_database_url("sqlite::memory:")
+    let url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/documents".to_string());
+    let state = AppState::from_database_url(&url)
         .await
-        .expect("in-memory DB failed");
+        .expect("test DB failed");
     build_router(state)
 }
 

@@ -11,9 +11,11 @@ use integrations_service::{build_router, AppState};
 async fn test_app() -> axum::Router {
     std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
 
-    let state = AppState::from_database_url("sqlite::memory:")
+    let url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/connections".to_string());
+    let state = AppState::from_database_url(&url)
         .await
-        .expect("in-memory DB failed");
+        .expect("test DB failed");
     build_router(state)
 }
 
