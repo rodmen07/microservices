@@ -1,7 +1,7 @@
 use std::env;
 
-use axum::{routing::get, Router};
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use axum::{http::Method, routing::get, Router};
+use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 
 use crate::app_state::AppState;
 use crate::handlers::{
@@ -25,7 +25,10 @@ pub fn build_cors_layer() -> CorsLayer {
         .split(',')
         .filter_map(|o| o.trim().parse().ok())
         .collect();
-    CorsLayer::new().allow_origin(allowed)
+    CorsLayer::new()
+        .allow_origin(allowed)
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_headers(Any)
 }
 
 // Assembles the full Axum router with the search query endpoint and all document CRUD routes, CORS, and tracing middleware
