@@ -44,6 +44,7 @@ jobs:
           sqlite3 /tmp/opportunities.db < opportunities-service/migrations/0001_create_opportunities.sql
           sqlite3 /tmp/reports.db       < reporting-service/migrations/0001_create_reports.sql
           sqlite3 /tmp/documents.db     < search-service/migrations/0001_create_search_documents.sql
+          sqlite3 /tmp/spend.db         < spend-service/migrations/0001_create_spend_records.sql
 
       - name: Clippy — all services
         run: |
@@ -55,6 +56,7 @@ jobs:
           DATABASE_URL=sqlite:////tmp/opportunities.db cargo clippy -p opportunities-service -- -D warnings
           DATABASE_URL=sqlite:////tmp/reports.db       cargo clippy -p reporting-service     -- -D warnings
           DATABASE_URL=sqlite:////tmp/documents.db     cargo clippy -p search-service        -- -D warnings
+          DATABASE_URL=sqlite:////tmp/spend.db         cargo clippy -p spend-service         -- -D warnings
 
       - name: Test — all services
         env:
@@ -69,6 +71,7 @@ jobs:
           DATABASE_URL=sqlite:////tmp/opportunities.db cargo test -p opportunities-service
           DATABASE_URL=sqlite:////tmp/reports.db       cargo test -p reporting-service
           DATABASE_URL=sqlite:////tmp/documents.db     cargo test -p search-service
+          DATABASE_URL=sqlite:////tmp/spend.db         cargo test -p spend-service
 
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
@@ -150,6 +153,10 @@ jobs:
             dockerfile: search-service/Dockerfile
             cloud_run_service: search-service
             db_name: documents
+          - service: spend-service
+            dockerfile: spend-service/Dockerfile
+            cloud_run_service: spend-service
+            db_name: spend
 
     env:
       GCP_REGION: us-central1

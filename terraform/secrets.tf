@@ -13,6 +13,7 @@ locals {
     opportunities = "postgresql://opportunities_user:${var.db_password}@${local.db_host}/opportunities?sslmode=require"
     reporting    = "postgresql://reporting_user:${var.db_password}@${local.db_host}/reporting?sslmode=require"
     search       = "postgresql://search_user:${var.db_password}@${local.db_host}/search?sslmode=require"
+    spend        = "postgresql://spend_user:${var.db_password}@${local.db_host}/spend?sslmode=require"
   }
 }
 

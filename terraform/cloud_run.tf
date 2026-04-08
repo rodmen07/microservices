@@ -11,6 +11,7 @@ locals {
     "opportunities-service" = { db_key = "opportunities", port = 8080 }
     "reporting-service"    = { db_key = "reporting",     port = 8080 }
     "search-service"       = { db_key = "search",        port = 8080 }
+    "spend-service"        = { db_key = "spend",         port = 8080 }
   }
 
   # backend-service (task-api) uses "tasks" DB
