@@ -1,19 +1,21 @@
 locals {
-  # PostgreSQL connection strings per service
-  # Format: postgresql://<user>:<password>@<host>/<db>?sslmode=require
-  db_host = google_sql_database_instance.main.public_ip_address
+  # PostgreSQL connection strings per service via Cloud SQL Auth Proxy Unix socket.
+  # Cloud Run connects through the connector (--add-cloudsql-instances), not direct IP.
+  # Format: postgresql://<user>:<password>@/<db>?host=/cloudsql/<instance_connection_name>
+  instance_connection_name = google_sql_database_instance.main.connection_name
 
   database_urls = {
-    accounts     = "postgresql://accounts_user:${var.db_password}@${local.db_host}/accounts?sslmode=require"
-    contacts     = "postgresql://contacts_user:${var.db_password}@${local.db_host}/contacts?sslmode=require"
-    tasks        = "postgresql://tasks_user:${var.db_password}@${local.db_host}/tasks?sslmode=require"
-    activities   = "postgresql://activities_user:${var.db_password}@${local.db_host}/activities?sslmode=require"
-    automation   = "postgresql://automation_user:${var.db_password}@${local.db_host}/automation?sslmode=require"
-    integrations = "postgresql://integrations_user:${var.db_password}@${local.db_host}/integrations?sslmode=require"
-    opportunities = "postgresql://opportunities_user:${var.db_password}@${local.db_host}/opportunities?sslmode=require"
-    reporting    = "postgresql://reporting_user:${var.db_password}@${local.db_host}/reporting?sslmode=require"
-    search       = "postgresql://search_user:${var.db_password}@${local.db_host}/search?sslmode=require"
-    spend        = "postgresql://spend_user:${var.db_password}@${local.db_host}/spend?sslmode=require"
+    accounts      = "postgresql://accounts_user:${var.db_password}@/accounts?host=/cloudsql/${local.instance_connection_name}"
+    contacts      = "postgresql://contacts_user:${var.db_password}@/contacts?host=/cloudsql/${local.instance_connection_name}"
+    tasks         = "postgresql://tasks_user:${var.db_password}@/tasks?host=/cloudsql/${local.instance_connection_name}"
+    activities    = "postgresql://activities_user:${var.db_password}@/activities?host=/cloudsql/${local.instance_connection_name}"
+    automation    = "postgresql://automation_user:${var.db_password}@/automation?host=/cloudsql/${local.instance_connection_name}"
+    integrations  = "postgresql://integrations_user:${var.db_password}@/integrations?host=/cloudsql/${local.instance_connection_name}"
+    opportunities = "postgresql://opportunities_user:${var.db_password}@/opportunities?host=/cloudsql/${local.instance_connection_name}"
+    reporting     = "postgresql://reporting_user:${var.db_password}@/reporting?host=/cloudsql/${local.instance_connection_name}"
+    search        = "postgresql://search_user:${var.db_password}@/search?host=/cloudsql/${local.instance_connection_name}"
+    spend         = "postgresql://spend_user:${var.db_password}@/spend?host=/cloudsql/${local.instance_connection_name}"
+    projects      = "postgresql://projects_user:${var.db_password}@/projects?host=/cloudsql/${local.instance_connection_name}"
   }
 }
 

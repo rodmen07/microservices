@@ -138,43 +138,43 @@ jobs:
           - service: accounts-service
             dockerfile: accounts-service/Dockerfile
             cloud_run_service: accounts-service
-            db_secret: ACCOUNTS_DB_URL
+            db_secret: DATABASE_URL_ACCOUNTS
           - service: contacts-service
             dockerfile: contacts-service/Dockerfile
             cloud_run_service: contacts-service
-            db_secret: CONTACTS_DB_URL
+            db_secret: DATABASE_URL_CONTACTS
           - service: activities-service
             dockerfile: activities-service/Dockerfile
             cloud_run_service: activities-service
-            db_secret: ACTIVITIES_DB_URL
+            db_secret: DATABASE_URL_ACTIVITIES
           - service: automation-service
             dockerfile: automation-service/Dockerfile
             cloud_run_service: automation-service
-            db_secret: AUTOMATION_DB_URL
+            db_secret: DATABASE_URL_AUTOMATION
           - service: integrations-service
             dockerfile: integrations-service/Dockerfile
             cloud_run_service: integrations-service
-            db_secret: INTEGRATIONS_DB_URL
+            db_secret: DATABASE_URL_INTEGRATIONS
           - service: opportunities-service
             dockerfile: opportunities-service/Dockerfile
             cloud_run_service: opportunities-service
-            db_secret: OPPORTUNITIES_DB_URL
+            db_secret: DATABASE_URL_OPPORTUNITIES
           - service: reporting-service
             dockerfile: reporting-service/Dockerfile
             cloud_run_service: reporting-service
-            db_secret: REPORTING_DB_URL
+            db_secret: DATABASE_URL_REPORTING
           - service: search-service
             dockerfile: search-service/Dockerfile
             cloud_run_service: search-service
-            db_secret: SEARCH_DB_URL
+            db_secret: DATABASE_URL_SEARCH
           - service: spend-service
             dockerfile: spend-service/Dockerfile
             cloud_run_service: spend-service
-            db_secret: SPEND_DB_URL
+            db_secret: DATABASE_URL_SPEND
           - service: projects-service
             dockerfile: projects-service/Dockerfile
             cloud_run_service: projects-service
-            db_secret: PROJECTS_DB_URL
+            db_secret: DATABASE_URL_PROJECTS
 
     env:
       GCP_REGION: us-central1

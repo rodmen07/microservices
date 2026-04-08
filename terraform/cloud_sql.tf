@@ -46,6 +46,7 @@ locals {
     "reporting",
     "search",
     "spend",
+    "projects",
   ]
 }
 
