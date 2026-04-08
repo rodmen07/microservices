@@ -65,7 +65,7 @@ pub async fn get_connection(
 
     let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
-         FROM connections WHERE id = ?",
+         FROM connections WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -106,7 +106,7 @@ pub async fn create_connection(
 
     sqlx::query(
         "INSERT INTO connections (id, provider, account_ref, status, last_synced_at, created_at, updated_at)
-         VALUES (?, ?, ?, 'connected', NULL, ?, ?)",
+         VALUES ($1, $2, $3, 'connected', NULL, $4, $5)",
     )
     .bind(&id)
     .bind(&provider)
@@ -119,7 +119,7 @@ pub async fn create_connection(
 
     let created = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
-         FROM connections WHERE id = ?",
+         FROM connections WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)
@@ -146,7 +146,7 @@ pub async fn update_connection(
 
     let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
-         FROM connections WHERE id = ?",
+         FROM connections WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -184,7 +184,7 @@ pub async fn update_connection(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE connections SET status = ?, last_synced_at = ?, updated_at = ? WHERE id = ?",
+        "UPDATE connections SET status = $1, last_synced_at = $2, updated_at = $3 WHERE id = $4",
     )
     .bind(&status)
     .bind(last_synced_at)
@@ -202,7 +202,7 @@ pub async fn update_connection(
 
     let updated = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
-         FROM connections WHERE id = ?",
+         FROM connections WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -226,7 +226,7 @@ pub async fn delete_connection(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query("DELETE FROM connections WHERE id = ?")
+    let result = sqlx::query("DELETE FROM connections WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await

@@ -2,18 +2,18 @@
 
 ## What this project is
 
-InfraPortal: a portfolio microservices system. Nine independently deployed Rust services, all production-grade with SQLite persistence and JWT authentication.
+InfraPortal: a portfolio microservices system. Ten independently deployed Rust services, all production-grade with Cloud SQL PostgreSQL persistence and JWT authentication.
 
 **Deployed and production-grade:**
-- `task-api-service` — Rust/Axum, SQLite, JWT auth, AI planner proxy. Port 3000. The reference implementation.
-- `accounts-service` — Rust/Axum, SQLite, JWT auth. Port 3010.
-- `contacts-service` — Rust/Axum, SQLite, JWT auth, cross-service account validation. Port 3011.
-- `activities-service` — Rust/Axum, SQLite, JWT auth. Port 3013.
-- `automation-service` — Rust/Axum, SQLite, JWT auth.
-- `integrations-service` — Rust/Axum, SQLite, JWT auth.
-- `opportunities-service` — Rust/Axum, SQLite, JWT auth.
-- `reporting-service` — Rust/Axum, SQLite, JWT auth, saved report CRUD, /dashboard.
-- `search-service` — Rust/Axum, SQLite, JWT auth, write-through indexing.
+- `task-api-service` — Rust/Axum, PostgreSQL, JWT auth, AI planner proxy. Port 3000. The reference implementation.
+- `accounts-service` — Rust/Axum, PostgreSQL, JWT auth. Port 3010.
+- `contacts-service` — Rust/Axum, PostgreSQL, JWT auth, cross-service account validation. Port 3011.
+- `activities-service` — Rust/Axum, PostgreSQL, JWT auth. Port 3013.
+- `automation-service` — Rust/Axum, PostgreSQL, JWT auth.
+- `integrations-service` — Rust/Axum, PostgreSQL, JWT auth.
+- `opportunities-service` — Rust/Axum, PostgreSQL, JWT auth.
+- `reporting-service` — Rust/Axum, PostgreSQL, JWT auth, saved report CRUD, /dashboard.
+- `search-service` — Rust/Axum, PostgreSQL, JWT auth, write-through indexing.
 
 **Non-Rust:**
 - `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
@@ -81,7 +81,7 @@ Without `#[path]`, Rust looks for `src/app_state.rs` not `src/lib/app_state.rs`.
 ```toml
 axum = { version = "0.8", features = ["macros"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macros", "migrate"] }
 jsonwebtoken = "8.3.0"
 chrono = { version = "0.4", features = ["clock"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -144,8 +144,10 @@ Use `StatusCode` constants (`BAD_REQUEST`, `NOT_FOUND`, `UNPROCESSABLE_ENTITY`, 
 
 ```rust
 // app_state.rs
+use sqlx::{postgres::PgPoolOptions, PgPool};
+
 pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> {
-    let pool = SqlitePoolOptions::new().max_connections(5).connect(database_url).await?;
+    let pool = PgPoolOptions::new().max_connections(5).connect(database_url).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(Self { pool })
 }
@@ -154,7 +156,12 @@ pub async fn from_database_url(database_url: &str) -> Result<Self, sqlx::Error> 
 - IDs are `TEXT` (UUID v4 strings), never integer autoincrement for new services.
 - Timestamps are `TEXT` in `"%Y-%m-%dT%H:%M:%SZ"` format via `chrono::Utc`.
 - `FromRow` derive on domain model structs; SELECT column order must match struct field order.
-- Default `DATABASE_URL`: `sqlite://<service-name>.db` (local).
+- SQL placeholders are numbered (`$1`, `$2`, ...) — not `?` (SQLite syntax).
+- Dynamic WHERE queries use a `param_idx: usize` counter to generate correct `$N` placeholders.
+- `INSERT ... ON CONFLICT DO NOTHING` for upsert/dedup (not `INSERT OR IGNORE`).
+- Migration timestamps: `DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))`.
+- Default `DATABASE_URL`: `postgres://postgres:postgres@localhost:5432/<service-name>` (local).
+- Cloud SQL (production): `postgres://user:pass@/<dbname>?host=/cloudsql/PROJECT:REGION:INSTANCE`.
 
 ---
 
@@ -177,14 +184,27 @@ When a service needs to validate a foreign key from another service (e.g. contac
 ## Google Cloud deployment
 
 CI/CD deploys Rust services to Google Cloud Run and pushes images to Artifact Registry.
+Persistence: Cloud SQL PostgreSQL 16 instance at `microservices-489413:us-south1:microservices-pg`.
+Each service connects to its own database on the shared instance via Unix socket.
 
 Expected GitHub configuration:
 - Repository variable `GCP_PROJECT_ID`.
-- Repository secret `GCP_SA_KEY` (service account JSON with Artifact Registry and Cloud Run deploy permissions).
+- Repository variable `ALLOWED_ORIGINS`.
+- Repository secret `GCP_WORKLOAD_IDENTITY_PROVIDER` (WIF provider resource name).
+- Repository secret `GCP_SERVICE_ACCOUNT` (deployer SA email).
+- Repository secret `AUTH_JWT_SECRET`.
+- Per-service Secret Manager secrets: `ACCOUNTS_DB_URL`, `CONTACTS_DB_URL`, `ACTIVITIES_DB_URL`,
+  `AUTOMATION_DB_URL`, `INTEGRATIONS_DB_URL`, `OPPORTUNITIES_DB_URL`, `REPORTING_DB_URL`,
+  `SEARCH_DB_URL`, `SPEND_DB_URL`, `PROJECTS_DB_URL`.
+  Format: `postgres://appuser:pass@/<dbname>?host=/cloudsql/microservices-489413:us-south1:microservices-pg`
+
+The deployer SA needs roles: Artifact Registry Writer, Cloud Run Developer, Cloud SQL Client,
+Secret Manager Secret Accessor.
 
 Runtime configuration (service-level):
 - `PORT` is injected by Cloud Run.
-- `DATABASE_URL`, `AUTH_JWT_SECRET`, and `ALLOWED_ORIGINS` come from environment/secrets.
+- `DATABASE_URL` comes from per-service Secret Manager secret (see above).
+- `AUTH_JWT_SECRET` and `ALLOWED_ORIGINS` come from secrets/variables.
 - Health check endpoint remains `/health` returning `{ "status": "ok" }`.
 
 ---

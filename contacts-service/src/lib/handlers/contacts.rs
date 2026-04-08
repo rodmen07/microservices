@@ -93,7 +93,6 @@ pub async fn list_contacts(
     };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    // Build query with optional filters plus ownership.
     let name_pattern = params.q.as_deref().map(|q| format!("%{}%", q));
 
     let mut base = String::from(
@@ -101,25 +100,44 @@ pub async fn list_contacts(
          FROM contacts WHERE 1=1",
     );
     let mut count_base = String::from("SELECT COUNT(*) FROM contacts WHERE 1=1");
+    let mut param_idx = 1usize;
 
     if params.account_id.is_some() {
-        base.push_str(" AND account_id = ?");
-        count_base.push_str(" AND account_id = ?");
+        base.push_str(&format!(" AND account_id = ${}", param_idx));
+        count_base.push_str(&format!(" AND account_id = ${}", param_idx));
+        param_idx += 1;
     }
     if params.lifecycle_stage.is_some() {
-        base.push_str(" AND lifecycle_stage = ?");
-        count_base.push_str(" AND lifecycle_stage = ?");
+        base.push_str(&format!(" AND lifecycle_stage = ${}", param_idx));
+        count_base.push_str(&format!(" AND lifecycle_stage = ${}", param_idx));
+        param_idx += 1;
     }
     if name_pattern.is_some() {
-        base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
-        count_base.push_str(" AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?)");
+        base.push_str(&format!(
+            " AND (first_name LIKE ${p} OR last_name LIKE ${p1} OR email LIKE ${p2})",
+            p = param_idx,
+            p1 = param_idx + 1,
+            p2 = param_idx + 2
+        ));
+        count_base.push_str(&format!(
+            " AND (first_name LIKE ${p} OR last_name LIKE ${p1} OR email LIKE ${p2})",
+            p = param_idx,
+            p1 = param_idx + 1,
+            p2 = param_idx + 2
+        ));
+        param_idx += 3;
     }
     if !is_admin || params.owner_id.is_some() {
-        base.push_str(" AND owner_id = ?");
-        count_base.push_str(" AND owner_id = ?");
+        base.push_str(&format!(" AND owner_id = ${}", param_idx));
+        count_base.push_str(&format!(" AND owner_id = ${}", param_idx));
+        param_idx += 1;
     }
 
-    base.push_str(" ORDER BY last_name ASC, first_name ASC LIMIT ? OFFSET ?");
+    base.push_str(&format!(
+        " ORDER BY last_name ASC, first_name ASC LIMIT ${} OFFSET ${}",
+        param_idx,
+        param_idx + 1
+    ));
 
     let mut rows_query = sqlx::query_as::<_, Contact>(&base);
     let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
@@ -195,9 +213,9 @@ pub async fn get_contact(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let query = if is_admin {
-        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ?"
+        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = $1"
     } else {
-        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ? AND owner_id = ?"
+        "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = $1 AND owner_id = $2"
     };
 
     let mut q = sqlx::query_as::<_, Contact>(query).bind(&id);
@@ -309,7 +327,7 @@ pub async fn create_contact(
 
     match sqlx::query(
         "INSERT INTO contacts (id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&id)
     .bind(&owner_id)
@@ -382,9 +400,9 @@ pub async fn update_contact(
     let existing = {
         let mut q = sqlx::query_as::<_, Contact>(
             if is_admin {
-                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ?"
+                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = $1"
             } else {
-                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = ? AND owner_id = ?"
+                "SELECT id, owner_id, account_id, first_name, last_name, email, phone, lifecycle_stage, created_at, updated_at FROM contacts WHERE id = $1 AND owner_id = $2"
             },
         )
         .bind(&id);
@@ -508,8 +526,8 @@ pub async fn update_contact(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "UPDATE contacts SET account_id = ?, first_name = ?, last_name = ?, email = ?, phone = ?,
-         lifecycle_stage = ?, updated_at = ? WHERE id = ?",
+        "UPDATE contacts SET account_id = $1, first_name = $2, last_name = $3, email = $4, phone = $5,
+         lifecycle_stage = $6, updated_at = $7 WHERE id = $8",
     )
     .bind(&new_account_id)
     .bind(&first_name)
@@ -581,12 +599,12 @@ pub async fn delete_contact(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let deletion = if is_admin {
-        sqlx::query("DELETE FROM contacts WHERE id = ?")
+        sqlx::query("DELETE FROM contacts WHERE id = $1")
             .bind(&id)
             .execute(&state.pool)
             .await
     } else {
-        sqlx::query("DELETE FROM contacts WHERE id = ? AND owner_id = ?")
+        sqlx::query("DELETE FROM contacts WHERE id = $1 AND owner_id = $2")
             .bind(&id)
             .bind(&claims.sub)
             .execute(&state.pool)

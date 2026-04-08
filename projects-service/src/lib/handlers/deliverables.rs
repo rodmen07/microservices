@@ -56,7 +56,7 @@ pub async fn list_deliverables(
     let milestone = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE id = ?",
+         FROM milestones WHERE id = $1",
     )
     .bind(&milestone_id)
     .fetch_optional(&state.pool)
@@ -74,7 +74,7 @@ pub async fn list_deliverables(
         let project = sqlx::query_as::<_, Project>(
             "SELECT id, account_id, client_user_id, name, description, status,
                     start_date, target_end_date, created_at, updated_at
-             FROM projects WHERE id = ?",
+             FROM projects WHERE id = $1",
         )
         .bind(&milestone.project_id)
         .fetch_optional(&state.pool)
@@ -99,7 +99,7 @@ pub async fn list_deliverables(
 
     let rows = sqlx::query_as::<_, Deliverable>(
         "SELECT id, milestone_id, name, description, status, created_at, updated_at
-         FROM deliverables WHERE milestone_id = ? ORDER BY created_at ASC",
+         FROM deliverables WHERE milestone_id = $1 ORDER BY created_at ASC",
     )
     .bind(&milestone_id)
     .fetch_all(&state.pool)
@@ -128,7 +128,7 @@ pub async fn create_deliverable(
     sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE id = ?",
+         FROM milestones WHERE id = $1",
     )
     .bind(&milestone_id)
     .fetch_optional(&state.pool)
@@ -173,7 +173,7 @@ pub async fn create_deliverable(
     sqlx::query(
         "INSERT INTO deliverables (id, milestone_id, name, description, status,
                                     created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(&id)
     .bind(&milestone_id)
@@ -194,7 +194,7 @@ pub async fn create_deliverable(
 
     let created = sqlx::query_as::<_, Deliverable>(
         "SELECT id, milestone_id, name, description, status, created_at, updated_at
-         FROM deliverables WHERE id = ?",
+         FROM deliverables WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -221,7 +221,7 @@ pub async fn update_deliverable(
 
     let existing = sqlx::query_as::<_, Deliverable>(
         "SELECT id, milestone_id, name, description, status, created_at, updated_at
-         FROM deliverables WHERE id = ?",
+         FROM deliverables WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -269,8 +269,8 @@ pub async fn update_deliverable(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE deliverables SET name = ?, description = ?, status = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE deliverables SET name = $1, description = $2, status = $3, updated_at = $4
+         WHERE id = $5",
     )
     .bind(&name)
     .bind(&description)
@@ -289,7 +289,7 @@ pub async fn update_deliverable(
 
     let updated = sqlx::query_as::<_, Deliverable>(
         "SELECT id, milestone_id, name, description, status, created_at, updated_at
-         FROM deliverables WHERE id = ?",
+         FROM deliverables WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -313,7 +313,7 @@ pub async fn delete_deliverable(
     let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
-    let result = sqlx::query("DELETE FROM deliverables WHERE id = ?")
+    let result = sqlx::query("DELETE FROM deliverables WHERE id = $1")
         .bind(&id)
         .execute(&state.pool)
         .await

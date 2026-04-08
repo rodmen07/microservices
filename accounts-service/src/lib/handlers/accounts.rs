@@ -57,26 +57,30 @@ pub async fn list_accounts(
     let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    // Build dynamic query with optional filters and user scoping.
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
     let mut where_clauses = Vec::new();
     let mut params_vec: Vec<String> = Vec::new();
+    let mut param_idx = 1usize;
 
     if let Some(status) = &params.status {
-        where_clauses.push("status = ?".to_string());
+        where_clauses.push(format!("status = ${}", param_idx));
+        param_idx += 1;
         params_vec.push(status.clone());
     }
 
     if let Some(q) = &params.q {
-        where_clauses.push("name LIKE ?".to_string());
+        where_clauses.push(format!("name LIKE ${}", param_idx));
+        param_idx += 1;
         params_vec.push(format!("%{}%", q));
     }
 
     if !is_admin {
-        where_clauses.push("owner_id = ?".to_string());
+        where_clauses.push(format!("owner_id = ${}", param_idx));
+        param_idx += 1;
         params_vec.push(claims.sub.clone());
     } else if let Some(owner_id) = &params.owner_id {
-        where_clauses.push("owner_id = ?".to_string());
+        where_clauses.push(format!("owner_id = ${}", param_idx));
+        param_idx += 1;
         params_vec.push(owner_id.clone());
     }
 
@@ -91,9 +95,11 @@ pub async fn list_accounts(
         count_base.push_str(&where_stmt);
     }
 
-    // Stable deterministic ordering prevents pagination overlap when multiple
-    // rows share the same created_at value.
-    query_base.push_str(" ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?");
+    query_base.push_str(&format!(
+        " ORDER BY created_at DESC, id DESC LIMIT ${} OFFSET ${}",
+        param_idx,
+        param_idx + 1
+    ));
 
     let mut rows_query = sqlx::query_as::<_, Account>(&query_base);
     let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
@@ -155,9 +161,9 @@ pub async fn get_account(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let query = if is_admin {
-        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?"
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = $1"
     } else {
-        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ? AND owner_id = ?"
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = $1 AND owner_id = $2"
     };
 
     let mut q = sqlx::query_as::<_, Account>(query).bind(&id);
@@ -235,7 +241,7 @@ pub async fn create_account(
 
     match sqlx::query(
         "INSERT INTO accounts (id, owner_id, name, domain, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7)",
     )
     .bind(&id)
     .bind(&owner_id)
@@ -305,7 +311,7 @@ pub async fn update_account(
 
     // Fetch existing account first.
     let existing = match sqlx::query_as::<_, Account>(
-        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = ?",
+        "SELECT id, owner_id, name, domain, status, created_at, updated_at FROM accounts WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -372,7 +378,7 @@ pub async fn update_account(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "UPDATE accounts SET name = ?, domain = ?, status = ?, updated_at = ? WHERE id = ?",
+        "UPDATE accounts SET name = $1, domain = $2, status = $3, updated_at = $4 WHERE id = $5",
     )
     .bind(&name)
     .bind(&domain)
@@ -437,12 +443,12 @@ pub async fn delete_account(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {
-        sqlx::query("DELETE FROM accounts WHERE id = ?")
+        sqlx::query("DELETE FROM accounts WHERE id = $1")
             .bind(&id)
             .execute(&state.pool)
             .await
     } else {
-        sqlx::query("DELETE FROM accounts WHERE id = ? AND owner_id = ?")
+        sqlx::query("DELETE FROM accounts WHERE id = $1 AND owner_id = $2")
             .bind(&id)
             .bind(&claims.sub)
             .execute(&state.pool)

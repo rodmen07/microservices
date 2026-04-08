@@ -45,6 +45,7 @@ locals {
     "opportunities",
     "reporting",
     "search",
+    "spend",
   ]
 }
 

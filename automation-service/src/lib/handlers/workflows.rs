@@ -67,7 +67,7 @@ pub async fn get_workflow(
     let row = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
-         FROM workflows WHERE id = ?",
+         FROM workflows WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -109,7 +109,7 @@ pub async fn create_workflow(
 
     sqlx::query(
         "INSERT INTO workflows (id, name, trigger_event, action_type, enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?)",
+         VALUES ($1, $2, $3, $4, 1, $5, $6)",
     )
     .bind(&id)
     .bind(&name)
@@ -124,7 +124,7 @@ pub async fn create_workflow(
     let created = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
-         FROM workflows WHERE id = ?",
+         FROM workflows WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)
@@ -152,7 +152,7 @@ pub async fn update_workflow(
     let existing = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
-         FROM workflows WHERE id = ?",
+         FROM workflows WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -215,8 +215,8 @@ pub async fn update_workflow(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE workflows SET name = ?, trigger_event = ?, action_type = ?, enabled = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE workflows SET name = $1, trigger_event = $2, action_type = $3, enabled = $4, updated_at = $5
+         WHERE id = $6",
     )
     .bind(&name)
     .bind(&trigger_event)
@@ -231,7 +231,7 @@ pub async fn update_workflow(
     let updated = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
-         FROM workflows WHERE id = ?",
+         FROM workflows WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -255,7 +255,7 @@ pub async fn delete_workflow(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query("DELETE FROM workflows WHERE id = ?")
+    let result = sqlx::query("DELETE FROM workflows WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await

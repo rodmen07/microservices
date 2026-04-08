@@ -45,7 +45,7 @@ pub async fn list_opportunities(
         let base = "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities";
         if let Some(owner_id) = params.get("owner_id") {
             (
-                format!("{} WHERE owner_id = ? ORDER BY created_at DESC", base),
+                format!("{} WHERE owner_id = $1 ORDER BY created_at DESC", base),
                 Some(owner_id.clone()),
             )
         } else {
@@ -53,7 +53,7 @@ pub async fn list_opportunities(
         }
     } else {
         (
-            "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE owner_id = ? ORDER BY created_at DESC".to_string(),
+            "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE owner_id = $1 ORDER BY created_at DESC".to_string(),
             Some(claims.sub.clone()),
         )
     };
@@ -84,9 +84,9 @@ pub async fn get_opportunity(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
-        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ?").bind(id)
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1").bind(id)
     } else {
-        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ? AND owner_id = ?").bind(id).bind(&claims.sub)
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1 AND owner_id = $2").bind(id).bind(&claims.sub)
     };
 
     let row = q
@@ -145,7 +145,7 @@ pub async fn create_opportunity(
 
     sqlx::query(
         "INSERT INTO opportunities (id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(&id)
     .bind(&owner_id)
@@ -163,7 +163,7 @@ pub async fn create_opportunity(
     let created = sqlx::query_as::<_, Opportunity>(
         "SELECT id, owner_id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
-         FROM opportunities WHERE id = ?",
+         FROM opportunities WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)
@@ -209,9 +209,9 @@ pub async fn update_opportunity(
     let existing = {
         let mut q = sqlx::query_as::<_, Opportunity>(
             if is_admin {
-                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ?"
+                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1"
             } else {
-                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = ? AND owner_id = ?"
+                "SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1 AND owner_id = $2"
             },
         )
         .bind(&id);
@@ -271,7 +271,7 @@ pub async fn update_opportunity(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE opportunities SET name = ?, stage = ?, amount = ?, close_date = ?, updated_at = ? WHERE id = ?",
+        "UPDATE opportunities SET name = $1, stage = $2, amount = $3, close_date = $4, updated_at = $5 WHERE id = $6",
     )
     .bind(&name)
     .bind(&stage)
@@ -286,7 +286,7 @@ pub async fn update_opportunity(
     let updated = sqlx::query_as::<_, Opportunity>(
         "SELECT id, owner_id, account_id, name, stage, amount,
                 close_date, created_at, updated_at
-         FROM opportunities WHERE id = ?",
+         FROM opportunities WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -329,12 +329,12 @@ pub async fn delete_opportunity(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {
-        sqlx::query("DELETE FROM opportunities WHERE id = ?")
+        sqlx::query("DELETE FROM opportunities WHERE id = $1")
             .bind(&id)
             .execute(&state.pool)
             .await
     } else {
-        sqlx::query("DELETE FROM opportunities WHERE id = ? AND owner_id = ?")
+        sqlx::query("DELETE FROM opportunities WHERE id = $1 AND owner_id = $2")
             .bind(&id)
             .bind(&claims.sub)
             .execute(&state.pool)

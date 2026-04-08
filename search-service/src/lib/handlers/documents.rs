@@ -48,7 +48,7 @@ pub async fn search_documents(
     let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents
-         WHERE LOWER(title) LIKE ? OR LOWER(body) LIKE ?
+         WHERE LOWER(title) LIKE $1 OR LOWER(body) LIKE $2
          ORDER BY created_at DESC",
     )
     .bind(&pattern)
@@ -118,7 +118,7 @@ pub async fn get_document(
 
     let row = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
-         FROM search_documents WHERE id = ?",
+         FROM search_documents WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.pool)
@@ -161,7 +161,7 @@ pub async fn index_document(
 
     sqlx::query(
         "INSERT INTO search_documents (id, entity_type, entity_id, title, body, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT(entity_id) DO UPDATE SET
              entity_type = excluded.entity_type,
              title       = excluded.title,
@@ -181,7 +181,7 @@ pub async fn index_document(
 
     let upserted = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
-         FROM search_documents WHERE entity_id = ?",
+         FROM search_documents WHERE entity_id = $1",
     )
     .bind(&entity_id)
     .fetch_one(&state.pool)
@@ -205,7 +205,7 @@ pub async fn delete_document_by_entity(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    sqlx::query("DELETE FROM search_documents WHERE entity_id = ?")
+    sqlx::query("DELETE FROM search_documents WHERE entity_id = $1")
         .bind(entity_id)
         .execute(&state.pool)
         .await
@@ -242,7 +242,7 @@ pub async fn update_document(
         ));
     }
 
-    let existing = sqlx::query_scalar::<_, String>("SELECT id FROM search_documents WHERE id = ?")
+    let existing = sqlx::query_scalar::<_, String>("SELECT id FROM search_documents WHERE id = $1")
         .bind(&id)
         .fetch_optional(&state.pool)
         .await
@@ -265,8 +265,8 @@ pub async fn update_document(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE search_documents SET entity_type = ?, entity_id = ?, title = ?, body = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE search_documents SET entity_type = $1, entity_id = $2, title = $3, body = $4, updated_at = $5
+         WHERE id = $6",
     )
     .bind(&entity_type)
     .bind(&entity_id)
@@ -280,7 +280,7 @@ pub async fn update_document(
 
     let updated = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
-         FROM search_documents WHERE id = ?",
+         FROM search_documents WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -304,7 +304,7 @@ pub async fn delete_document(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
-    let result = sqlx::query("DELETE FROM search_documents WHERE id = ?")
+    let result = sqlx::query("DELETE FROM search_documents WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await

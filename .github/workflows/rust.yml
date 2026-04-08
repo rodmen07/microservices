@@ -16,6 +16,21 @@ jobs:
     name: Lint and test
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,51 +42,44 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install sqlite3
+      # Create one database per service. Migrations run automatically via
+      # sqlx::migrate! when AppState::from_database_url is called in tests.
+      - name: Create per-service test databases
+        env:
+          PGPASSWORD: postgres
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends sqlite3
-
-      # All services are SQLite-backed. Create one DB per service from migrations.
-      - name: Create test databases
-        run: |
-          sqlite3 /tmp/accounts.db      < accounts-service/migrations/0001_create_accounts.sql
-          sqlite3 /tmp/contacts.db      < contacts-service/migrations/0001_create_contacts.sql
-          sqlite3 /tmp/activities.db    < activities-service/migrations/0001_create_activities.sql
-          sqlite3 /tmp/activities.db    < activities-service/migrations/0002_fix_completed_boolean.sql
-          sqlite3 /tmp/workflows.db     < automation-service/migrations/0001_create_workflows.sql
-          sqlite3 /tmp/connections.db   < integrations-service/migrations/0001_create_connections.sql
-          sqlite3 /tmp/opportunities.db < opportunities-service/migrations/0001_create_opportunities.sql
-          sqlite3 /tmp/reports.db       < reporting-service/migrations/0001_create_reports.sql
-          sqlite3 /tmp/documents.db     < search-service/migrations/0001_create_search_documents.sql
-          sqlite3 /tmp/spend.db         < spend-service/migrations/0001_create_spend_records.sql
+          for db in accounts contacts activities workflows connections opportunities reports documents spend projects; do
+            psql -h localhost -U postgres -c "CREATE DATABASE ${db};"
+          done
 
       - name: Clippy — all services
         run: |
-          DATABASE_URL=sqlite:////tmp/accounts.db      cargo clippy -p accounts-service      -- -D warnings
-          DATABASE_URL=sqlite:////tmp/contacts.db      cargo clippy -p contacts-service      -- -D warnings
-          DATABASE_URL=sqlite:////tmp/activities.db    cargo clippy -p activities-service    -- -D warnings
-          DATABASE_URL=sqlite:////tmp/workflows.db     cargo clippy -p automation-service    -- -D warnings
-          DATABASE_URL=sqlite:////tmp/connections.db   cargo clippy -p integrations-service  -- -D warnings
-          DATABASE_URL=sqlite:////tmp/opportunities.db cargo clippy -p opportunities-service -- -D warnings
-          DATABASE_URL=sqlite:////tmp/reports.db       cargo clippy -p reporting-service     -- -D warnings
-          DATABASE_URL=sqlite:////tmp/documents.db     cargo clippy -p search-service        -- -D warnings
-          DATABASE_URL=sqlite:////tmp/spend.db         cargo clippy -p spend-service         -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts      cargo clippy -p accounts-service      -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/contacts      cargo clippy -p contacts-service      -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/activities    cargo clippy -p activities-service    -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/workflows     cargo clippy -p automation-service    -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/connections   cargo clippy -p integrations-service  -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/opportunities cargo clippy -p opportunities-service -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/reports       cargo clippy -p reporting-service     -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/documents     cargo clippy -p search-service        -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/spend         cargo clippy -p spend-service         -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo clippy -p projects-service      -- -D warnings
 
       - name: Test — all services
         env:
           AUTH_JWT_SECRET: dev-insecure-secret-change-me
           ALLOWED_ORIGINS: http://localhost:5173
         run: |
-          DATABASE_URL=sqlite:////tmp/accounts.db      cargo test -p accounts-service
-          DATABASE_URL=sqlite:////tmp/contacts.db      cargo test -p contacts-service
-          DATABASE_URL=sqlite:////tmp/activities.db    cargo test -p activities-service
-          DATABASE_URL=sqlite:////tmp/workflows.db     cargo test -p automation-service
-          DATABASE_URL=sqlite:////tmp/connections.db   cargo test -p integrations-service
-          DATABASE_URL=sqlite:////tmp/opportunities.db cargo test -p opportunities-service
-          DATABASE_URL=sqlite:////tmp/reports.db       cargo test -p reporting-service
-          DATABASE_URL=sqlite:////tmp/documents.db     cargo test -p search-service
-          DATABASE_URL=sqlite:////tmp/spend.db         cargo test -p spend-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts      cargo test -p accounts-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/contacts      cargo test -p contacts-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/activities    cargo test -p activities-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/workflows     cargo test -p automation-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/connections   cargo test -p integrations-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/opportunities cargo test -p opportunities-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/reports       cargo test -p reporting-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/documents     cargo test -p search-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/spend         cargo test -p spend-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
 
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
@@ -100,12 +108,18 @@ jobs:
   #
   # Required GitHub configuration:
   # - Repository variable GCP_PROJECT_ID: target Google Cloud project ID
+  # - Repository variable ALLOWED_ORIGINS: allowed CORS origins
   # - Repository secret GCP_WORKLOAD_IDENTITY_PROVIDER: full WIF provider resource name
   #     projects/PROJECT_NUM/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
   # - Repository secret GCP_SERVICE_ACCOUNT: deployer SA email
   #     deployer@PROJECT_ID.iam.gserviceaccount.com
+  # - Repository secret AUTH_JWT_SECRET: shared JWT signing secret
+  # - Per-service Secret Manager secrets (see db_secret in matrix below):
+  #     Each secret holds the full Cloud SQL DATABASE_URL for that service, e.g.:
+  #     postgres://appuser:pass@/accounts?host=/cloudsql/PROJECT:REGION:INSTANCE
   #
-  # The SA needs roles: Artifact Registry Writer, Cloud Run Developer.
+  # The SA needs roles: Artifact Registry Writer, Cloud Run Developer,
+  #   Cloud SQL Client, Secret Manager Secret Accessor.
   # The WIF pool must trust this repo: attribute.repository=="rodmen07/microservices"
   #
   # Services are deployed in parallel after tests pass.
@@ -124,43 +138,48 @@ jobs:
           - service: accounts-service
             dockerfile: accounts-service/Dockerfile
             cloud_run_service: accounts-service
-            db_name: accounts
+            db_secret: ACCOUNTS_DB_URL
           - service: contacts-service
             dockerfile: contacts-service/Dockerfile
             cloud_run_service: contacts-service
-            db_name: contacts
+            db_secret: CONTACTS_DB_URL
           - service: activities-service
             dockerfile: activities-service/Dockerfile
             cloud_run_service: activities-service
-            db_name: activities
+            db_secret: ACTIVITIES_DB_URL
           - service: automation-service
             dockerfile: automation-service/Dockerfile
             cloud_run_service: automation-service
-            db_name: workflows
+            db_secret: AUTOMATION_DB_URL
           - service: integrations-service
             dockerfile: integrations-service/Dockerfile
             cloud_run_service: integrations-service
-            db_name: connections
+            db_secret: INTEGRATIONS_DB_URL
           - service: opportunities-service
             dockerfile: opportunities-service/Dockerfile
             cloud_run_service: opportunities-service
-            db_name: opportunities
+            db_secret: OPPORTUNITIES_DB_URL
           - service: reporting-service
             dockerfile: reporting-service/Dockerfile
             cloud_run_service: reporting-service
-            db_name: reports
+            db_secret: REPORTING_DB_URL
           - service: search-service
             dockerfile: search-service/Dockerfile
             cloud_run_service: search-service
-            db_name: documents
+            db_secret: SEARCH_DB_URL
           - service: spend-service
             dockerfile: spend-service/Dockerfile
             cloud_run_service: spend-service
-            db_name: spend
+            db_secret: SPEND_DB_URL
+          - service: projects-service
+            dockerfile: projects-service/Dockerfile
+            cloud_run_service: projects-service
+            db_secret: PROJECTS_DB_URL
 
     env:
       GCP_REGION: us-central1
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      CLOUD_SQL_INSTANCE: microservices-489413:us-south1:microservices-pg
 
     steps:
       - uses: actions/checkout@v4
@@ -233,8 +252,9 @@ jobs:
             --min-instances 0 \
             --max-instances 3 \
             --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
-            --set-env-vars "^#^DATABASE_URL=sqlite:////tmp/${{ matrix.db_name }}.db#AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
-            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest" \
+            --add-cloudsql-instances "${{ env.CLOUD_SQL_INSTANCE }}" \
+            --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
+            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest" \
             --quiet
 
       - name: Allow unauthenticated access

@@ -52,7 +52,7 @@ pub async fn list_projects(
         sqlx::query_as::<_, Project>(
             "SELECT id, account_id, client_user_id, name, description, status,
                     start_date, target_end_date, created_at, updated_at
-             FROM projects WHERE client_user_id = ? ORDER BY created_at DESC",
+             FROM projects WHERE client_user_id = $1 ORDER BY created_at DESC",
         )
         .bind(&claims.sub)
         .fetch_all(&state.pool)
@@ -87,7 +87,7 @@ pub async fn get_project(
     let row = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -158,7 +158,7 @@ pub async fn create_project(
     sqlx::query(
         "INSERT INTO projects (id, account_id, client_user_id, name, description, status,
                                start_date, target_end_date, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&id)
     .bind(&req.account_id)
@@ -183,7 +183,7 @@ pub async fn create_project(
     let created = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -228,7 +228,7 @@ pub async fn update_project(
     let existing = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -289,9 +289,9 @@ pub async fn update_project(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE projects SET client_user_id = ?, name = ?, description = ?, status = ?,
-                start_date = ?, target_end_date = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE projects SET client_user_id = $1, name = $2, description = $3, status = $4,
+                start_date = $5, target_end_date = $6, updated_at = $7
+         WHERE id = $8",
     )
     .bind(&client_user_id)
     .bind(&name)
@@ -314,7 +314,7 @@ pub async fn update_project(
     let updated = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -355,7 +355,7 @@ pub async fn delete_project(
     let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
-    let result = sqlx::query("DELETE FROM projects WHERE id = ?")
+    let result = sqlx::query("DELETE FROM projects WHERE id = $1")
         .bind(&id)
         .execute(&state.pool)
         .await

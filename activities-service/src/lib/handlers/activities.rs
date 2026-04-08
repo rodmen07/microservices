@@ -41,7 +41,7 @@ pub async fn list_activities(
     let q = if is_admin {
         sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities ORDER BY created_at DESC")
     } else {
-        sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE owner_id = ? ORDER BY created_at DESC").bind(&claims.sub)
+        sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities WHERE owner_id = $1 ORDER BY created_at DESC").bind(&claims.sub)
     };
 
     let rows = q.fetch_all(&state.pool).await.map_err(|_| {

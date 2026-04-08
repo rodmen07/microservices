@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::Utc;
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::models::SyncResult;
@@ -81,7 +81,7 @@ async fn get_gcp_access_token(
     Ok(token_resp.access_token)
 }
 
-pub async fn pull_gcp_billing(pool: &SqlitePool, client: &reqwest::Client) -> SyncResult {
+pub async fn pull_gcp_billing(pool: &PgPool, client: &reqwest::Client) -> SyncResult {
     let mut result = SyncResult {
         platform: "gcp".to_string(),
         records_imported: 0,
@@ -218,8 +218,9 @@ pub async fn pull_gcp_billing(pool: &SqlitePool, client: &reqwest::Client) -> Sy
 
         let id = Uuid::new_v4().to_string();
         match sqlx::query(
-            "INSERT OR IGNORE INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-             VALUES (?, 'gcp', ?, ?, 'daily', ?, 'bigquery', NULL, ?, ?)",
+            "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
+             VALUES ($1, 'gcp', $2, $3, 'daily', $4, 'bigquery', NULL, $5, $6)
+             ON CONFLICT DO NOTHING",
         )
         .bind(&id)
         .bind(date)
@@ -286,7 +287,7 @@ struct FlyError {
     message: String,
 }
 
-pub async fn pull_flyio_billing(pool: &SqlitePool, client: &reqwest::Client) -> SyncResult {
+pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> SyncResult {
     let mut result = SyncResult {
         platform: "flyio".to_string(),
         records_imported: 0,
@@ -387,20 +388,16 @@ pub async fn pull_flyio_billing(pool: &SqlitePool, client: &reqwest::Client) -> 
 
         let id = Uuid::new_v4().to_string();
 
-        // Use a dedup check since the partial unique index only covers rows with service_label
         match sqlx::query(
             "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-             SELECT ?, 'flyio', ?, ?, 'monthly', NULL, 'flyio_graphql', NULL, ?, ?
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM spend_records WHERE platform = 'flyio' AND date = ? AND service_label IS NULL
-             )",
+             VALUES ($1, 'flyio', $2, $3, 'monthly', NULL, 'flyio_graphql', NULL, $4, $5)
+             ON CONFLICT DO NOTHING",
         )
         .bind(&id)
         .bind(&date)
         .bind(amount_usd)
         .bind(&now)
         .bind(&now)
-        .bind(&date)
         .execute(pool)
         .await
         {

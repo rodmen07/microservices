@@ -54,21 +54,26 @@ pub async fn list_spend(
 
     let mut where_clauses = Vec::new();
     let mut params_vec: Vec<String> = Vec::new();
+    let mut param_idx = 1usize;
 
     if let Some(platform) = &params.platform {
-        where_clauses.push("platform = ?".to_string());
+        where_clauses.push(format!("platform = ${}", param_idx));
+        param_idx += 1;
         params_vec.push(platform.clone());
     }
     if let Some(date_from) = &params.date_from {
-        where_clauses.push("date >= ?".to_string());
+        where_clauses.push(format!("date >= ${}", param_idx));
+        param_idx += 1;
         params_vec.push(date_from.clone());
     }
     if let Some(date_to) = &params.date_to {
-        where_clauses.push("date <= ?".to_string());
+        where_clauses.push(format!("date <= ${}", param_idx));
+        param_idx += 1;
         params_vec.push(date_to.clone());
     }
     if let Some(source) = &params.source {
-        where_clauses.push("source = ?".to_string());
+        where_clauses.push(format!("source = ${}", param_idx));
+        param_idx += 1;
         params_vec.push(source.clone());
     }
 
@@ -81,7 +86,11 @@ pub async fn list_spend(
         count_base.push_str(&where_stmt);
     }
 
-    query_base.push_str(" ORDER BY date DESC, platform, service_label LIMIT ? OFFSET ?");
+    query_base.push_str(&format!(
+        " ORDER BY date DESC, platform, service_label LIMIT ${} OFFSET ${}",
+        param_idx,
+        param_idx + 1
+    ));
 
     let mut rows_query = sqlx::query_as::<_, SpendRecord>(&query_base);
     let mut count_query = sqlx::query_scalar::<_, i64>(&count_base);
@@ -128,7 +137,7 @@ pub async fn get_spend(
     }
 
     match sqlx::query_as::<_, SpendRecord>(
-        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = ?",
+        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -219,7 +228,7 @@ pub async fn create_spend(
 
     match sqlx::query(
         "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9)",
     )
     .bind(&id)
     .bind(&platform)
@@ -267,7 +276,7 @@ pub async fn update_spend(
     }
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
-        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = ?",
+        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -381,7 +390,7 @@ pub async fn update_spend(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "UPDATE spend_records SET platform = ?, date = ?, amount_usd = ?, granularity = ?, service_label = ?, notes = ?, updated_at = ? WHERE id = ?",
+        "UPDATE spend_records SET platform = $1, date = $2, amount_usd = $3, granularity = $4, service_label = $5, notes = $6, updated_at = $7 WHERE id = $8",
     )
     .bind(&platform)
     .bind(&date)
@@ -427,7 +436,7 @@ pub async fn delete_spend(
     }
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
-        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = ?",
+        "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -449,7 +458,7 @@ pub async fn delete_spend(
         );
     }
 
-    match sqlx::query("DELETE FROM spend_records WHERE id = ?")
+    match sqlx::query("DELETE FROM spend_records WHERE id = $1")
         .bind(&id)
         .execute(&state.pool)
         .await
@@ -473,15 +482,19 @@ pub async fn get_summary(
 
     let mut where_clauses = Vec::new();
     let mut params_vec: Vec<String> = Vec::new();
+    let mut param_idx = 1usize;
 
     if let Some(date_from) = &params.date_from {
-        where_clauses.push("date >= ?".to_string());
+        where_clauses.push(format!("date >= ${}", param_idx));
+        param_idx += 1;
         params_vec.push(date_from.clone());
     }
     if let Some(date_to) = &params.date_to {
-        where_clauses.push("date <= ?".to_string());
+        where_clauses.push(format!("date <= ${}", param_idx));
+        param_idx += 1;
         params_vec.push(date_to.clone());
     }
+    let _ = param_idx; // suppress unused warning
 
     let where_stmt = if where_clauses.is_empty() {
         String::new()

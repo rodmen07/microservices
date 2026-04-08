@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS activities (
     notes         TEXT,
     due_at        TEXT,
     completed     BOOLEAN NOT NULL DEFAULT false,
-    created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-    updated_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+    created_at    TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+    updated_at    TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_activities_owner_id ON activities(owner_id);

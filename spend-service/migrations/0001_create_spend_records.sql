@@ -15,3 +15,5 @@ CREATE INDEX IF NOT EXISTS idx_spend_platform ON spend_records(platform);
 CREATE INDEX IF NOT EXISTS idx_spend_date ON spend_records(date);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_dedup ON spend_records(platform, date, service_label)
     WHERE service_label IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_spend_dedup_no_label ON spend_records(platform, date)
+    WHERE service_label IS NULL;

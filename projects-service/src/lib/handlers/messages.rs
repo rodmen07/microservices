@@ -29,14 +29,14 @@ fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response>
 }
 
 async fn require_project_access(
-    pool: &sqlx::SqlitePool,
+    pool: &sqlx::PgPool,
     project_id: &str,
     claims: &AuthClaims,
 ) -> Result<(), Response> {
     let project = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(project_id)
     .fetch_optional(pool)
@@ -70,7 +70,7 @@ pub async fn list_messages(
 
     let rows = sqlx::query_as::<_, Message>(
         "SELECT id, project_id, author_id, author_role, body, created_at
-         FROM messages WHERE project_id = ? ORDER BY created_at ASC",
+         FROM messages WHERE project_id = $1 ORDER BY created_at ASC",
     )
     .bind(&project_id)
     .fetch_all(&state.pool)
@@ -115,7 +115,7 @@ pub async fn create_message(
 
     sqlx::query(
         "INSERT INTO messages (id, project_id, author_id, author_role, body, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(&id)
     .bind(&project_id)
@@ -135,7 +135,7 @@ pub async fn create_message(
 
     let created = sqlx::query_as::<_, Message>(
         "SELECT id, project_id, author_id, author_role, body, created_at
-         FROM messages WHERE id = ?",
+         FROM messages WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)

@@ -41,14 +41,14 @@ fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
 }
 
 async fn require_project_access(
-    pool: &sqlx::SqlitePool,
+    pool: &sqlx::PgPool,
     project_id: &str,
     claims: &AuthClaims,
 ) -> Result<(), Response> {
     let project = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(project_id)
     .fetch_optional(pool)
@@ -85,7 +85,7 @@ pub async fn list_milestones(
     let rows = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC",
+         FROM milestones WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC",
     )
     .bind(&project_id)
     .fetch_all(&state.pool)
@@ -114,7 +114,7 @@ pub async fn create_milestone(
     sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
-         FROM projects WHERE id = ?",
+         FROM projects WHERE id = $1",
     )
     .bind(&project_id)
     .fetch_optional(&state.pool)
@@ -160,7 +160,7 @@ pub async fn create_milestone(
     sqlx::query(
         "INSERT INTO milestones (id, project_id, name, description, due_date, status,
                                  sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(&id)
     .bind(&project_id)
@@ -184,7 +184,7 @@ pub async fn create_milestone(
     let created = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE id = ?",
+         FROM milestones WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -212,7 +212,7 @@ pub async fn update_milestone(
     let existing = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE id = ?",
+         FROM milestones WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -267,9 +267,9 @@ pub async fn update_milestone(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE milestones SET name = ?, description = ?, due_date = ?, status = ?,
-                sort_order = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE milestones SET name = $1, description = $2, due_date = $3, status = $4,
+                sort_order = $5, updated_at = $6
+         WHERE id = $7",
     )
     .bind(&name)
     .bind(&description)
@@ -291,7 +291,7 @@ pub async fn update_milestone(
     let updated = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
                 created_at, updated_at
-         FROM milestones WHERE id = ?",
+         FROM milestones WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -315,7 +315,7 @@ pub async fn delete_milestone(
     let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
-    let result = sqlx::query("DELETE FROM milestones WHERE id = ?")
+    let result = sqlx::query("DELETE FROM milestones WHERE id = $1")
         .bind(&id)
         .execute(&state.pool)
         .await

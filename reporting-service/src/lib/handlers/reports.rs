@@ -134,7 +134,7 @@ pub async fn get_dashboard(
 
     // Reporting-service counts
     let reports = if let Some(user_id) = target_user {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports WHERE owner_id = ?")
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports WHERE owner_id = $1")
             .bind(user_id)
             .fetch_one(&state.pool)
             .await
@@ -242,7 +242,7 @@ pub async fn list_reports(
     } else {
         sqlx::query_as::<_, SavedReport>(
             "SELECT id, name, description, metric, dimension, created_at, updated_at
-             FROM reports WHERE owner_id = ? ORDER BY created_at DESC",
+             FROM reports WHERE owner_id = $1 ORDER BY created_at DESC",
         )
         .bind(&claims.sub)
         .fetch_all(&state.pool)
@@ -270,7 +270,7 @@ pub async fn get_report(
 
     let row = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
-         FROM reports WHERE id = ?",
+         FROM reports WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -288,7 +288,7 @@ pub async fn get_report(
 
     if !is_admin {
         // Verify ownership
-        let owner_id: String = sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = ?")
+        let owner_id: String = sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = $1")
             .bind(&id)
             .fetch_one(&state.pool)
             .await
@@ -336,7 +336,7 @@ pub async fn create_report(
 
     sqlx::query(
         "INSERT INTO reports (id, name, description, metric, dimension, owner_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(&id)
     .bind(&name)
@@ -358,7 +358,7 @@ pub async fn create_report(
 
     let created = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
-         FROM reports WHERE id = ?",
+         FROM reports WHERE id = $1",
     )
     .bind(id)
     .fetch_one(&state.pool)
@@ -388,7 +388,7 @@ pub async fn update_report(
 
     let existing = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
-         FROM reports WHERE id = ?",
+         FROM reports WHERE id = $1",
     )
     .bind(&id)
     .fetch_optional(&state.pool)
@@ -403,7 +403,7 @@ pub async fn update_report(
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "report not found"))?;
 
     if !is_admin {
-        let owner_id: String = sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = ?")
+        let owner_id: String = sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = $1")
             .bind(&id)
             .fetch_one(&state.pool)
             .await
@@ -469,8 +469,8 @@ pub async fn update_report(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE reports SET name = ?, description = ?, metric = ?, dimension = ?, updated_at = ?
-         WHERE id = ?",
+        "UPDATE reports SET name = $1, description = $2, metric = $3, dimension = $4, updated_at = $5
+         WHERE id = $6",
     )
     .bind(&name)
     .bind(description)
@@ -490,7 +490,7 @@ pub async fn update_report(
 
     let updated = sqlx::query_as::<_, SavedReport>(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
-         FROM reports WHERE id = ?",
+         FROM reports WHERE id = $1",
     )
     .bind(&id)
     .fetch_one(&state.pool)
@@ -517,7 +517,7 @@ pub async fn delete_report(
 
     if !is_admin {
         let owner_id: Option<String> =
-            sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = ?")
+            sqlx::query_scalar("SELECT owner_id FROM reports WHERE id = $1")
                 .bind(&id)
                 .fetch_optional(&state.pool)
                 .await
@@ -538,7 +538,7 @@ pub async fn delete_report(
         }
     }
 
-    let result = sqlx::query("DELETE FROM reports WHERE id = ?")
+    let result = sqlx::query("DELETE FROM reports WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await
