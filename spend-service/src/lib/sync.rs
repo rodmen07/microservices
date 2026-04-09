@@ -252,34 +252,31 @@ pub async fn pull_gcp_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
 // ---------------------------------------------------------------------------
 // Fly.io GraphQL billing sync
 // ---------------------------------------------------------------------------
+// Fly.io removed per-invoice history from their public GraphQL API.
+// We now query org-level creditBalance (in cents) and record a monthly
+// snapshot if there is an outstanding balance.
 
 #[derive(Deserialize)]
-struct FlyGraphQLResponse {
-    data: Option<FlyData>,
+struct FlyOrgsResponse {
+    data: Option<FlyOrgsData>,
     errors: Option<Vec<FlyError>>,
 }
 
 #[derive(Deserialize)]
-struct FlyData {
-    #[serde(alias = "currentUser")]
-    current_user: Option<FlyCurrentUser>,
+struct FlyOrgsData {
+    organizations: Option<FlyOrgConnection>,
 }
 
 #[derive(Deserialize)]
-struct FlyCurrentUser {
-    invoices: Option<FlyInvoices>,
+struct FlyOrgConnection {
+    nodes: Vec<FlyOrg>,
 }
 
 #[derive(Deserialize)]
-struct FlyInvoices {
-    nodes: Vec<FlyInvoice>,
-}
-
-#[derive(Deserialize)]
-struct FlyInvoice {
-    amount: f64,
-    #[serde(alias = "invoiceDate")]
-    invoice_date: Option<String>,
+struct FlyOrg {
+    slug: String,
+    #[serde(alias = "creditBalance")]
+    credit_balance: i64, // cents; negative = they owe you, positive = you owe them
 }
 
 #[derive(Deserialize)]
@@ -305,7 +302,8 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
         }
     };
 
-    let query = r#"query { currentUser { invoices { nodes { amount invoiceDate } } } }"#;
+    // Fly.io dropped per-invoice history; org creditBalance is the best available signal.
+    let query = r#"query { organizations { nodes { slug creditBalance } } }"#;
 
     let resp = match client
         .post("https://api.fly.io/graphql")
@@ -331,7 +329,7 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
         return result;
     }
 
-    let gql_resp: FlyGraphQLResponse = match resp.json().await {
+    let gql_resp: FlyOrgsResponse = match resp.json().await {
         Ok(r) => r,
         Err(e) => {
             result
@@ -350,14 +348,9 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
         }
     }
 
-    let invoices = match gql_resp.data {
-        Some(FlyData {
-            current_user:
-                Some(FlyCurrentUser {
-                    invoices: Some(invoices),
-                }),
-        }) => invoices.nodes,
-        _ => {
+    let orgs = match gql_resp.data.and_then(|d| d.organizations) {
+        Some(conn) => conn.nodes,
+        None => {
             result
                 .errors
                 .push("unexpected Fly.io response shape".to_string());
@@ -365,39 +358,33 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
         }
     };
 
-    let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let now = Utc::now();
+    let now_str = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    // Record against the first of the current month so ON CONFLICT deduplicates per-month syncs.
+    let month_date = now.format("%Y-%m-01").to_string();
 
-    for invoice in &invoices {
-        let date = match &invoice.invoice_date {
-            Some(d) => {
-                // Normalise to YYYY-MM-01 (first of the invoice month)
-                if d.len() >= 7 {
-                    format!("{}-01", &d[..7])
-                } else {
-                    continue;
-                }
-            }
-            None => continue,
-        };
-
-        // Fly.io amounts are in cents
-        let amount_usd = invoice.amount / 100.0;
-        if amount_usd <= 0.0 {
+    for org in &orgs {
+        // creditBalance > 0 means the account owes Fly.io (outstanding balance in cents).
+        if org.credit_balance <= 0 {
+            result.records_skipped += 1;
             continue;
         }
 
+        let amount_usd = org.credit_balance as f64 / 100.0;
+        let label = format!("Fly.io ({})", org.slug);
         let id = Uuid::new_v4().to_string();
 
         match sqlx::query(
             "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-             VALUES ($1, 'flyio', $2, $3, 'monthly', NULL, 'flyio_graphql', NULL, $4, $5)
+             VALUES ($1, 'flyio', $2, $3, 'monthly', $4, 'flyio_graphql', NULL, $5, $6)
              ON CONFLICT DO NOTHING",
         )
         .bind(&id)
-        .bind(&date)
+        .bind(&month_date)
         .bind(amount_usd)
-        .bind(&now)
-        .bind(&now)
+        .bind(&label)
+        .bind(&now_str)
+        .bind(&now_str)
         .execute(pool)
         .await
         {
@@ -411,7 +398,7 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
             Err(e) => {
                 result
                     .errors
-                    .push(format!("insert error for invoice {date}: {e}"));
+                    .push(format!("insert error for org {}: {e}", org.slug));
             }
         }
     }
