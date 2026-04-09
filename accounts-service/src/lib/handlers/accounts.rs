@@ -69,7 +69,7 @@ pub async fn list_accounts(
     }
 
     if let Some(q) = &params.q {
-        where_clauses.push(format!("name LIKE ${}", param_idx));
+        where_clauses.push(format!("name ILIKE ${}", param_idx));
         param_idx += 1;
         params_vec.push(format!("%{}%", q));
     }

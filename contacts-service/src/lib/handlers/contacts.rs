@@ -114,13 +114,13 @@ pub async fn list_contacts(
     }
     if name_pattern.is_some() {
         base.push_str(&format!(
-            " AND (first_name LIKE ${p} OR last_name LIKE ${p1} OR email LIKE ${p2})",
+            " AND (first_name ILIKE ${p} OR last_name ILIKE ${p1} OR email ILIKE ${p2})",
             p = param_idx,
             p1 = param_idx + 1,
             p2 = param_idx + 2
         ));
         count_base.push_str(&format!(
-            " AND (first_name LIKE ${p} OR last_name LIKE ${p1} OR email LIKE ${p2})",
+            " AND (first_name ILIKE ${p} OR last_name ILIKE ${p1} OR email ILIKE ${p2})",
             p = param_idx,
             p1 = param_idx + 1,
             p2 = param_idx + 2
