@@ -38,30 +38,46 @@ pub async fn get_dashboard_summary(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<DashboardSummary>, Response> {
-    let _claims = require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
-    let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports")
-        .fetch_one(&state.pool)
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "DB_ERROR",
-                "database error",
-            )
-        })?;
+    let count = if is_admin {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports")
+            .fetch_one(&state.pool)
+            .await
+    } else {
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM reports WHERE owner_id = $1")
+            .bind(&claims.sub)
+            .fetch_one(&state.pool)
+            .await
+    }
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
-    let metric_rows =
+    let metric_rows = if is_admin {
         sqlx::query_scalar::<_, String>("SELECT DISTINCT metric FROM reports ORDER BY metric")
             .fetch_all(&state.pool)
             .await
-            .map_err(|_| {
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "DB_ERROR",
-                    "database error",
-                )
-            })?;
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT metric FROM reports WHERE owner_id = $1 ORDER BY metric",
+        )
+        .bind(&claims.sub)
+        .fetch_all(&state.pool)
+        .await
+    }
+    .map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
 
     Ok(Json(DashboardSummary {
         active_reports: count,
