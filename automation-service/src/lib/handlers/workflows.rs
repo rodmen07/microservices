@@ -109,7 +109,7 @@ pub async fn create_workflow(
 
     sqlx::query(
         "INSERT INTO workflows (id, name, trigger_event, action_type, enabled, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, 1, $5, $6)",
+         VALUES ($1, $2, $3, $4, TRUE, $5, $6)",
     )
     .bind(&id)
     .bind(&name)
