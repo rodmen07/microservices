@@ -7,8 +7,10 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use reporting_service::{build_router, AppState};
+use uuid::Uuid;
 
-async fn test_app() -> axum::Router {
+/// Returns (app, unique_user_id) so each test has an isolated user namespace.
+async fn test_app() -> (axum::Router, String) {
     // Ensure auth secret matches the test token signer.
     std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
 
@@ -17,15 +19,16 @@ async fn test_app() -> axum::Router {
     let state = AppState::from_database_url(&url)
         .await
         .expect("test DB failed");
-    build_router(state)
+    let user_id = Uuid::new_v4().to_string();
+    (build_router(state), user_id)
 }
 
-fn make_jwt_with_roles(roles: &[&str]) -> String {
+fn make_jwt_for(sub: &str, roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
     let claims = json!({
-        "sub": "test-user",
+        "sub": sub,
         "iss": "auth-service",
         "exp": 9999999999u64,
         "roles": roles
@@ -41,12 +44,12 @@ fn make_jwt_with_roles(roles: &[&str]) -> String {
     format!("Bearer {token}")
 }
 
-fn make_jwt() -> String {
-    make_jwt_with_roles(&[])
+fn make_jwt(sub: &str) -> String {
+    make_jwt_for(sub, &[])
 }
 
-fn make_admin_jwt() -> String {
-    make_jwt_with_roles(&["admin"])
+fn make_admin_jwt(sub: &str) -> String {
+    make_jwt_for(sub, &["admin"])
 }
 
 async fn body_json(body: Body) -> Value {
@@ -56,7 +59,7 @@ async fn body_json(body: Body) -> Value {
 
 #[tokio::test]
 async fn health_returns_ok() {
-    let app = test_app().await;
+    let (app, _) = test_app().await;
     let resp = app
         .oneshot(
             Request::builder()
@@ -71,7 +74,7 @@ async fn health_returns_ok() {
 
 #[tokio::test]
 async fn list_reports_requires_auth() {
-    let app = test_app().await;
+    let (app, _) = test_app().await;
     let resp = app
         .oneshot(
             Request::builder()
@@ -86,7 +89,7 @@ async fn list_reports_requires_auth() {
 
 #[tokio::test]
 async fn dashboard_summary_requires_auth() {
-    let app = test_app().await;
+    let (app, _) = test_app().await;
     let resp = app
         .oneshot(
             Request::builder()
@@ -101,9 +104,9 @@ async fn dashboard_summary_requires_auth() {
 
 #[tokio::test]
 async fn dashboard_view_endpoint_user_and_admin() {
-    let app = test_app().await;
-    let user_auth = make_jwt();
-    let admin_auth = make_admin_jwt();
+    let (app, uid) = test_app().await;
+    let user_auth = make_jwt(&uid);
+    let admin_auth = make_admin_jwt(&uid);
 
     // create one metric with current user marker
     let create_resp = app
@@ -146,7 +149,7 @@ async fn dashboard_view_endpoint_user_and_admin() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/dashboard?user_id=test-user")
+                .uri(format!("/api/v1/dashboard?user_id={uid}"))
                 .header(header::AUTHORIZATION, &admin_auth)
                 .body(Body::empty())
                 .unwrap(),
@@ -160,8 +163,8 @@ async fn dashboard_view_endpoint_user_and_admin() {
 
 #[tokio::test]
 async fn create_report_and_check_dashboard() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
 
     // Dashboard starts empty
     let dash_resp = app
@@ -226,8 +229,8 @@ async fn create_report_and_check_dashboard() {
 
 #[tokio::test]
 async fn update_report() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -271,8 +274,8 @@ async fn update_report() {
 
 #[tokio::test]
 async fn get_report_found() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -313,8 +316,8 @@ async fn get_report_found() {
 
 #[tokio::test]
 async fn get_report_not_found_is_404() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -330,8 +333,8 @@ async fn get_report_not_found_is_404() {
 
 #[tokio::test]
 async fn list_reports_returns_array() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
 
     app.clone()
         .oneshot(
@@ -367,8 +370,8 @@ async fn list_reports_returns_array() {
 
 #[tokio::test]
 async fn delete_report_returns_204() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -419,8 +422,8 @@ async fn delete_report_returns_204() {
 
 #[tokio::test]
 async fn delete_report_not_found_is_404() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -437,8 +440,8 @@ async fn delete_report_not_found_is_404() {
 
 #[tokio::test]
 async fn create_report_missing_required_fields_is_422() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -458,8 +461,8 @@ async fn create_report_missing_required_fields_is_422() {
 
 #[tokio::test]
 async fn update_report_not_found_is_404() {
-    let app = test_app().await;
-    let auth = make_jwt();
+    let (app, uid) = test_app().await;
+    let auth = make_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -477,7 +480,7 @@ async fn update_report_not_found_is_404() {
 
 #[tokio::test]
 async fn invalid_auth_token_is_401() {
-    let app = test_app().await;
+    let (app, _) = test_app().await;
     let resp = app
         .oneshot(
             Request::builder()
