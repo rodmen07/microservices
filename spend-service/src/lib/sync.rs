@@ -405,3 +405,320 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
 
     result
 }
+
+// ---------------------------------------------------------------------------
+// GitHub billing sync — Actions minutes + storage via GitHub REST API
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct GitHubActionsUsage {
+    total_minutes_used: f64,
+    total_paid_minutes_used: f64,
+    included_minutes: f64,
+}
+
+#[derive(Deserialize)]
+struct GitHubStorageUsage {
+    days_left_in_billing_cycle: u32,
+    estimated_paid_storage_for_month: f64,
+    estimated_storage_for_month: f64,
+}
+
+pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> SyncResult {
+    let mut result = SyncResult {
+        platform: "github".to_string(),
+        records_imported: 0,
+        records_skipped: 0,
+        errors: Vec::new(),
+    };
+
+    let token = match env::var("GITHUB_BILLING_TOKEN") {
+        Ok(v) => v,
+        Err(_) => {
+            result.errors.push("GITHUB_BILLING_TOKEN not configured".to_string());
+            return result;
+        }
+    };
+
+    let username = match env::var("GITHUB_BILLING_USERNAME") {
+        Ok(v) => v,
+        Err(_) => {
+            result.errors.push("GITHUB_BILLING_USERNAME not configured".to_string());
+            return result;
+        }
+    };
+
+    let now = Utc::now();
+    let now_str = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let month_date = now.format("%Y-%m-01").to_string();
+
+    // Actions usage
+    let actions_resp = client
+        .get(format!("https://api.github.com/users/{username}/settings/billing/actions"))
+        .bearer_auth(&token)
+        .header("User-Agent", "spend-service/1.0")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await;
+
+    match actions_resp {
+        Err(e) => result.errors.push(format!("GitHub Actions billing request failed: {e}")),
+        Ok(r) if !r.status().is_success() => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            result.errors.push(format!("GitHub Actions billing {status}: {body}"));
+        }
+        Ok(r) => match r.json::<GitHubActionsUsage>().await {
+            Err(e) => result.errors.push(format!("failed to parse GitHub Actions usage: {e}")),
+            Ok(usage) => {
+                let paid = usage.total_paid_minutes_used;
+                let minutes = usage.total_minutes_used;
+                // GitHub charges $0.008/min for Linux runners on paid overages
+                let amount_usd = paid * 0.008;
+                let label = format!(
+                    "GitHub Actions ({:.0}/{:.0} min, {:.0} paid)",
+                    minutes, usage.included_minutes, paid
+                );
+                if amount_usd > 0.0 {
+                    let id = Uuid::new_v4().to_string();
+                    match sqlx::query(
+                        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
+                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', NULL, $5, $6)
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&id).bind(&month_date).bind(amount_usd).bind(&label).bind(&now_str).bind(&now_str)
+                    .execute(pool).await
+                    {
+                        Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                        Err(e) => result.errors.push(format!("insert error (actions): {e}")),
+                    }
+                } else {
+                    result.records_skipped += 1;
+                }
+            }
+        },
+    }
+
+    // Storage usage
+    let storage_resp = client
+        .get(format!("https://api.github.com/users/{username}/settings/billing/shared-storage"))
+        .bearer_auth(&token)
+        .header("User-Agent", "spend-service/1.0")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await;
+
+    match storage_resp {
+        Err(e) => result.errors.push(format!("GitHub storage billing request failed: {e}")),
+        Ok(r) if !r.status().is_success() => { let _ = r.text().await; } // non-fatal
+        Ok(r) => match r.json::<GitHubStorageUsage>().await {
+            Err(_) => {} // non-fatal
+            Ok(usage) => {
+                let amount_usd = usage.estimated_paid_storage_for_month;
+                if amount_usd > 0.0 {
+                    let label = format!(
+                        "GitHub Storage ({:.1} GB est., {} days left)",
+                        usage.estimated_storage_for_month, usage.days_left_in_billing_cycle
+                    );
+                    let id = Uuid::new_v4().to_string();
+                    match sqlx::query(
+                        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
+                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', NULL, $5, $6)
+                         ON CONFLICT DO NOTHING",
+                    )
+                    .bind(&id).bind(&month_date).bind(amount_usd).bind(&label).bind(&now_str).bind(&now_str)
+                    .execute(pool).await
+                    {
+                        Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                        Err(e) => result.errors.push(format!("insert error (storage): {e}")),
+                    }
+                } else {
+                    result.records_skipped += 1;
+                }
+            }
+        },
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// AWS Cost Explorer sync — last 30 days grouped by service (SigV4)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct CostExplorerResponse {
+    #[serde(rename = "ResultsByTime")]
+    results_by_time: Vec<CostResult>,
+}
+
+#[derive(Deserialize)]
+struct CostResult {
+    #[serde(rename = "TimePeriod")]
+    time_period: TimePeriod,
+    #[serde(rename = "Groups")]
+    groups: Vec<CostGroup>,
+}
+
+#[derive(Deserialize)]
+struct TimePeriod {
+    #[serde(rename = "Start")]
+    start: String,
+}
+
+#[derive(Deserialize)]
+struct CostGroup {
+    #[serde(rename = "Keys")]
+    keys: Vec<String>,
+    #[serde(rename = "Metrics")]
+    metrics: CostMetrics,
+}
+
+#[derive(Deserialize)]
+struct CostMetrics {
+    #[serde(rename = "UnblendedCost")]
+    unblended_cost: CostAmount,
+}
+
+#[derive(Deserialize)]
+struct CostAmount {
+    #[serde(rename = "Amount")]
+    amount: String,
+}
+
+pub async fn pull_aws_billing(pool: &PgPool, client: &reqwest::Client) -> SyncResult {
+    let mut result = SyncResult {
+        platform: "aws".to_string(),
+        records_imported: 0,
+        records_skipped: 0,
+        errors: Vec::new(),
+    };
+
+    let access_key = match env::var("AWS_BILLING_ACCESS_KEY_ID") {
+        Ok(v) => v,
+        Err(_) => {
+            result.errors.push("AWS_BILLING_ACCESS_KEY_ID not configured".to_string());
+            return result;
+        }
+    };
+    let secret_key = match env::var("AWS_BILLING_SECRET_ACCESS_KEY") {
+        Ok(v) => v,
+        Err(_) => {
+            result.errors.push("AWS_BILLING_SECRET_ACCESS_KEY not configured".to_string());
+            return result;
+        }
+    };
+
+    let now = Utc::now();
+    let now_str = now.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let end_date = now.format("%Y-%m-%d").to_string();
+    let start_date = (now - chrono::Duration::days(30)).format("%Y-%m-%d").to_string();
+
+    let body = serde_json::json!({
+        "TimePeriod": { "Start": start_date, "End": end_date },
+        "Granularity": "MONTHLY",
+        "GroupBy": [{ "Type": "DIMENSION", "Key": "SERVICE" }],
+        "Metrics": ["UnblendedCost"]
+    })
+    .to_string();
+
+    // AWS SigV4 signing — Cost Explorer is us-east-1 only
+    let region = "us-east-1";
+    let host = "ce.us-east-1.amazonaws.com";
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = now.format("%Y%m%d").to_string();
+
+    use hmac::{Hmac, Mac};
+    use sha2::{Digest, Sha256};
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    }
+    fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+        mac.update(data);
+        mac.finalize().into_bytes().to_vec()
+    }
+
+    let body_hash = hex(&Sha256::digest(body.as_bytes()));
+    let canonical_headers = format!("content-type:application/x-amz-json-1.1\nhost:{host}\nx-amz-date:{amz_date}\n");
+    let signed_headers = "content-type;host;x-amz-date";
+    let canonical_request = format!("POST\n/\n\n{canonical_headers}\n{signed_headers}\n{body_hash}");
+    let credential_scope = format!("{date_stamp}/{region}/ce/aws4_request");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{}",
+        hex(&Sha256::digest(canonical_request.as_bytes()))
+    );
+    let signing_key = {
+        let k1 = hmac_sha256(format!("AWS4{secret_key}").as_bytes(), date_stamp.as_bytes());
+        let k2 = hmac_sha256(&k1, region.as_bytes());
+        let k3 = hmac_sha256(&k2, b"ce");
+        hmac_sha256(&k3, b"aws4_request")
+    };
+    let signature = hex(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
+    );
+
+    let resp = match client
+        .post(format!("https://{host}/"))
+        .header("Content-Type", "application/x-amz-json-1.1")
+        .header("X-Amz-Date", &amz_date)
+        .header("X-Amz-Target", "AWSInsightsIndexService.GetCostAndUsage")
+        .header("Authorization", authorization)
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            result.errors.push(format!("AWS Cost Explorer request failed: {e}"));
+            return result;
+        }
+    };
+
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        result.errors.push(format!("AWS Cost Explorer error: {body}"));
+        return result;
+    }
+
+    let cost_resp: CostExplorerResponse = match resp.json().await {
+        Ok(r) => r,
+        Err(e) => {
+            result.errors.push(format!("failed to parse AWS Cost Explorer response: {e}"));
+            return result;
+        }
+    };
+
+    for period in &cost_resp.results_by_time {
+        let date = if period.time_period.start.len() >= 7 {
+            format!("{}-01", &period.time_period.start[..7])
+        } else {
+            continue;
+        };
+
+        for group in &period.groups {
+            let service = group.keys.first().cloned().unwrap_or_default();
+            let amount_usd: f64 = group.metrics.unblended_cost.amount.parse().unwrap_or(0.0);
+            if amount_usd <= 0.0 {
+                continue;
+            }
+
+            let id = Uuid::new_v4().to_string();
+            match sqlx::query(
+                "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
+                 VALUES ($1, 'aws', $2, $3, 'monthly', $4, 'aws_cost_explorer', NULL, $5, $6)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(&id).bind(&date).bind(amount_usd).bind(&service).bind(&now_str).bind(&now_str)
+            .execute(pool).await
+            {
+                Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                Err(e) => result.errors.push(format!("insert error ({service} {date}): {e}")),
+            }
+        }
+    }
+
+    result
+}

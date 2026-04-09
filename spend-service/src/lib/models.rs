@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-pub const VALID_PLATFORMS: &[&str] = &["gcp", "flyio", "anthropic", "github_copilot"];
+pub const VALID_PLATFORMS: &[&str] = &["gcp", "flyio", "anthropic", "github_copilot", "github", "aws"];
 pub const VALID_GRANULARITIES: &[&str] = &["daily", "monthly"];
-pub const VALID_SOURCES: &[&str] = &["manual", "bigquery", "flyio_graphql"];
+pub const VALID_SOURCES: &[&str] = &["manual", "bigquery", "flyio_graphql", "github_api", "aws_cost_explorer"];
 
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {

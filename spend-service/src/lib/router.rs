@@ -11,8 +11,8 @@ use crate::app_state::AppState;
 use crate::handlers::{
     health::health,
     spend::{
-        create_spend, delete_spend, get_spend, get_summary, list_spend, sync_flyio, sync_gcp,
-        update_spend,
+        create_spend, delete_spend, get_spend, get_summary, list_spend, sync_aws, sync_flyio,
+        sync_gcp, sync_github, update_spend,
     },
 };
 
@@ -42,6 +42,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/spend/summary", get(get_summary))
         .route("/api/v1/spend/sync/gcp", post(sync_gcp))
         .route("/api/v1/spend/sync/flyio", post(sync_flyio))
+        .route("/api/v1/spend/sync/github", post(sync_github))
+        .route("/api/v1/spend/sync/aws", post(sync_aws))
         .route(
             "/api/v1/spend/{id}",
             get(get_spend).patch(update_spend).delete(delete_spend),

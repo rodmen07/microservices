@@ -579,3 +579,21 @@ pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Re
     let result = crate::sync::pull_flyio_billing(&state.pool, &state.http_client).await;
     Json(result).into_response()
 }
+
+pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> Response {
+    if let Err(resp) = require_auth(&headers) {
+        return resp;
+    }
+
+    let result = crate::sync::pull_github_billing(&state.pool, &state.http_client).await;
+    Json(result).into_response()
+}
+
+pub async fn sync_aws(headers: HeaderMap, State(state): State<AppState>) -> Response {
+    if let Err(resp) = require_auth(&headers) {
+        return resp;
+    }
+
+    let result = crate::sync::pull_aws_billing(&state.pool, &state.http_client).await;
+    Json(result).into_response()
+}
