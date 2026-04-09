@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS spend_records (
     id              TEXT PRIMARY KEY NOT NULL,
     platform        TEXT NOT NULL,
     date            TEXT NOT NULL,
-    amount_usd      REAL NOT NULL,
+    amount_usd      DOUBLE PRECISION NOT NULL,
     granularity     TEXT NOT NULL DEFAULT 'daily',
     service_label   TEXT,
     source          TEXT NOT NULL DEFAULT 'manual',

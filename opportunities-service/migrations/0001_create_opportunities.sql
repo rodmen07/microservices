@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS opportunities (
     account_id TEXT    NOT NULL,
     name       TEXT    NOT NULL,
     stage      TEXT    NOT NULL DEFAULT 'qualification',
-    amount     REAL    NOT NULL DEFAULT 0.0,
+    amount     DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     close_date TEXT,
     created_at TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
     updated_at TEXT    NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
