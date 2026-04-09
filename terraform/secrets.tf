@@ -1,21 +1,30 @@
 locals {
   # PostgreSQL connection strings per service via Cloud SQL Auth Proxy Unix socket.
   # Cloud Run connects through the connector (--add-cloudsql-instances), not direct IP.
-  # Format: postgresql://<user>:<password>@/<db>?host=/cloudsql/<instance_connection_name>
+  #
+  # sqlx 0.8 cannot parse the ?host= query parameter format — it raises
+  # Configuration(EmptyHost) when the URL authority is empty (user:pass@/db).
+  # The correct format is to percent-encode the socket directory path as the
+  # URL host: postgresql://user:pass@%2Fcloudsql%2FPROJECT%3AREGION%3AINSTANCE/db
+  # sqlx decodes the host to /cloudsql/... and treats it as a Unix socket path.
   instance_connection_name = google_sql_database_instance.main.connection_name
 
+  # Percent-encode the socket path for use as a URL host component.
+  # /cloudsql/PROJECT:REGION:INSTANCE → %2Fcloudsql%2FPROJECT%3AREGION%3AINSTANCE
+  encoded_socket = replace(replace("/cloudsql/${google_sql_database_instance.main.connection_name}", "/", "%2F"), ":", "%3A")
+
   database_urls = {
-    accounts      = "postgresql://accounts_user:${var.db_password}@/accounts?host=/cloudsql/${local.instance_connection_name}"
-    contacts      = "postgresql://contacts_user:${var.db_password}@/contacts?host=/cloudsql/${local.instance_connection_name}"
-    tasks         = "postgresql://tasks_user:${var.db_password}@/tasks?host=/cloudsql/${local.instance_connection_name}"
-    activities    = "postgresql://activities_user:${var.db_password}@/activities?host=/cloudsql/${local.instance_connection_name}"
-    automation    = "postgresql://automation_user:${var.db_password}@/automation?host=/cloudsql/${local.instance_connection_name}"
-    integrations  = "postgresql://integrations_user:${var.db_password}@/integrations?host=/cloudsql/${local.instance_connection_name}"
-    opportunities = "postgresql://opportunities_user:${var.db_password}@/opportunities?host=/cloudsql/${local.instance_connection_name}"
-    reporting     = "postgresql://reporting_user:${var.db_password}@/reporting?host=/cloudsql/${local.instance_connection_name}"
-    search        = "postgresql://search_user:${var.db_password}@/search?host=/cloudsql/${local.instance_connection_name}"
-    spend         = "postgresql://spend_user:${var.db_password}@/spend?host=/cloudsql/${local.instance_connection_name}"
-    projects      = "postgresql://projects_user:${var.db_password}@/projects?host=/cloudsql/${local.instance_connection_name}"
+    accounts      = "postgresql://accounts_user:${var.db_password}@${local.encoded_socket}/accounts"
+    contacts      = "postgresql://contacts_user:${var.db_password}@${local.encoded_socket}/contacts"
+    tasks         = "postgresql://tasks_user:${var.db_password}@${local.encoded_socket}/tasks"
+    activities    = "postgresql://activities_user:${var.db_password}@${local.encoded_socket}/activities"
+    automation    = "postgresql://automation_user:${var.db_password}@${local.encoded_socket}/automation"
+    integrations  = "postgresql://integrations_user:${var.db_password}@${local.encoded_socket}/integrations"
+    opportunities = "postgresql://opportunities_user:${var.db_password}@${local.encoded_socket}/opportunities"
+    reporting     = "postgresql://reporting_user:${var.db_password}@${local.encoded_socket}/reporting"
+    search        = "postgresql://search_user:${var.db_password}@${local.encoded_socket}/search"
+    spend         = "postgresql://spend_user:${var.db_password}@${local.encoded_socket}/spend"
+    projects      = "postgresql://projects_user:${var.db_password}@${local.encoded_socket}/projects"
   }
 }
 
