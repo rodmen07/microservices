@@ -260,6 +260,15 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v1.0.4 | OAuth flows — GitHub + Google client portal sign-in with client-role JWT | Published (2026-03-29) |
 | v1.0.5 | Admin provisioning UI — create projects, milestones, deliverables; assign to client users | Published (2026-03-29) |
 
+### v1.1 — Developer Experience & Portfolio Quality ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v1.1 | CI/CD pipeline — two-stage runner image build/test across full workspace | Published (2026-04-09) |
+| v1.1.1 | Gemini API — `/consult/gemini` + stream endpoints in ai-orchestrator; Claude/Gemini toggle in frontend | Published (2026-04-10) |
+| v1.1.2 | Portfolio narrative fixes — Dockerfiles cleaned of SQLite; docs corrected to PostgreSQL (Cloud SQL) | Published (2026-04-10) |
+| v1.1.3 | activities-service cross-service validation — account_id/contact_id validated on create; Terraform extra_env wiring | Published (2026-04-10) |
+
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
