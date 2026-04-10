@@ -9,3 +9,9 @@ db_password       = "change-me-strong-password"
 jwt_secret        = "change-me-jwt-secret-min-32-chars"
 anthropic_api_key = "sk-ant-..."
 frontend_origin   = "https://rodmen07.github.io"
+
+# Cross-service URLs (set after first deploy; leave blank for initial apply)
+accounts_service_url      = "https://accounts-service-<hash>-uc.a.run.app"
+contacts_service_url      = "https://contacts-service-<hash>-uc.a.run.app"
+opportunities_service_url = "https://opportunities-service-<hash>-uc.a.run.app"
+activities_service_url    = "https://activities-service-<hash>-uc.a.run.app"

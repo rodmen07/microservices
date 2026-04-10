@@ -1,3 +1,5 @@
+use std::env;
+
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -12,6 +14,36 @@ use crate::{
     auth::validate_authorization_header,
     models::{Activity, ApiError, CreateActivityRequest, UpdateActivityRequest},
 };
+
+async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header: &str) -> bool {
+    let base_url = match env::var("ACCOUNTS_SERVICE_URL") {
+        Ok(url) => url,
+        Err(_) => return true, // fail-open: no accounts service configured
+    };
+    let url = format!("{}/api/v1/accounts/{}", base_url.trim_end_matches('/'), account_id);
+    match client.get(&url).header("Authorization", auth_header).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(e) => {
+            tracing::warn!("account validation request failed: {e}");
+            false
+        }
+    }
+}
+
+async fn contact_exists(client: &reqwest::Client, contact_id: &str, auth_header: &str) -> bool {
+    let base_url = match env::var("CONTACTS_SERVICE_URL") {
+        Ok(url) => url,
+        Err(_) => return true, // fail-open: no contacts service configured
+    };
+    let url = format!("{}/api/v1/contacts/{}", base_url.trim_end_matches('/'), contact_id);
+    match client.get(&url).header("Authorization", auth_header).send().await {
+        Ok(resp) => resp.status().is_success(),
+        Err(e) => {
+            tracing::warn!("contact validation request failed: {e}");
+            false
+        }
+    }
+}
 
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (
@@ -106,6 +138,31 @@ pub async fn create_activity(
             "VALIDATION_ERROR",
             "activity_type and subject are required",
         ));
+    }
+
+    let auth_header = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if let Some(ref account_id) = req.account_id {
+        if !account_exists(&state.http_client, account_id, auth_header).await {
+            return Err(error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INVALID_ACCOUNT",
+                "referenced account does not exist",
+            ));
+        }
+    }
+
+    if let Some(ref contact_id) = req.contact_id {
+        if !contact_exists(&state.http_client, contact_id, auth_header).await {
+            return Err(error_response(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "INVALID_CONTACT",
+                "referenced contact does not exist",
+            ));
+        }
     }
 
     let id = Uuid::new_v4().to_string();

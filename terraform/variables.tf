@@ -44,3 +44,27 @@ variable "frontend_origin" {
   type        = string
   default     = "https://rodmen07.github.io"
 }
+
+variable "accounts_service_url" {
+  description = "Cloud Run URL for accounts-service (used by contacts/activities for cross-service validation)"
+  type        = string
+  default     = ""
+}
+
+variable "contacts_service_url" {
+  description = "Cloud Run URL for contacts-service (used by activities for cross-service validation)"
+  type        = string
+  default     = ""
+}
+
+variable "opportunities_service_url" {
+  description = "Cloud Run URL for opportunities-service (used by reporting-service dashboard aggregation)"
+  type        = string
+  default     = ""
+}
+
+variable "activities_service_url" {
+  description = "Cloud Run URL for activities-service (used by reporting-service dashboard aggregation)"
+  type        = string
+  default     = ""
+}

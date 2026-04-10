@@ -1,17 +1,28 @@
 locals {
   registry_base = "${var.region}-docker.pkg.dev/${var.project_id}/microservices"
 
-  # Map service name → { db_secret_key, port }
+  # Map service name → { db_key, port, extra_env }
+  # extra_env: plain-value env vars injected in addition to DATABASE_URL, AUTH_JWT_SECRET, ALLOWED_ORIGINS.
   rust_services = {
-    "accounts-service"     = { db_key = "accounts",      port = 8080 }
-    "contacts-service"     = { db_key = "contacts",      port = 8080 }
-    "activities-service"   = { db_key = "activities",    port = 8080 }
-    "automation-service"   = { db_key = "automation",    port = 8080 }
-    "integrations-service" = { db_key = "integrations",  port = 8080 }
-    "opportunities-service" = { db_key = "opportunities", port = 8080 }
-    "reporting-service"    = { db_key = "reporting",     port = 8080 }
-    "search-service"       = { db_key = "search",        port = 8080 }
-    "spend-service"        = { db_key = "spend",         port = 8080 }
+    "accounts-service"     = { db_key = "accounts",      port = 8080, extra_env = {} }
+    "contacts-service"     = { db_key = "contacts",      port = 8080, extra_env = {
+      ACCOUNTS_SERVICE_URL = var.accounts_service_url
+    }}
+    "activities-service"   = { db_key = "activities",    port = 8080, extra_env = {
+      ACCOUNTS_SERVICE_URL = var.accounts_service_url
+      CONTACTS_SERVICE_URL = var.contacts_service_url
+    }}
+    "automation-service"   = { db_key = "automation",    port = 8080, extra_env = {} }
+    "integrations-service" = { db_key = "integrations",  port = 8080, extra_env = {} }
+    "opportunities-service" = { db_key = "opportunities", port = 8080, extra_env = {} }
+    "reporting-service"    = { db_key = "reporting",     port = 8080, extra_env = {
+      ACCOUNTS_SERVICE_URL  = var.accounts_service_url
+      CONTACTS_SERVICE_URL  = var.contacts_service_url
+      OPPORTUNITIES_SERVICE_URL = var.opportunities_service_url
+      ACTIVITIES_SERVICE_URL    = var.activities_service_url
+    }}
+    "search-service"       = { db_key = "search",        port = 8080, extra_env = {} }
+    "spend-service"        = { db_key = "spend",         port = 8080, extra_env = {} }
   }
 
   # backend-service (task-api) uses "tasks" DB
@@ -68,6 +79,14 @@ resource "google_cloud_run_v2_service" "rust_services" {
             secret  = google_secret_manager_secret.jwt_secret.secret_id
             version = "latest"
           }
+        }
+      }
+
+      dynamic "env" {
+        for_each = each.value.extra_env
+        content {
+          name  = env.key
+          value = env.value
         }
       }
 
