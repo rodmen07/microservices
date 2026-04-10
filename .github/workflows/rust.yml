@@ -171,6 +171,8 @@ jobs:
             dockerfile: spend-service/Dockerfile
             cloud_run_service: spend-service
             db_secret: DATABASE_URL_SPEND
+            extra_secrets: "GCP_BILLING_SA_KEY=GCP_BILLING_SA_KEY:latest,FLYIO_API_TOKEN=FLYIO_API_TOKEN:latest,GITHUB_BILLING_TOKEN=GITHUB_BILLING_TOKEN:latest,GITHUB_BILLING_USERNAME=GITHUB_BILLING_USERNAME:latest,AWS_BILLING_ACCESS_KEY_ID=AWS_BILLING_ACCESS_KEY_ID:latest,AWS_BILLING_SECRET_ACCESS_KEY=AWS_BILLING_SECRET_ACCESS_KEY:latest"
+            extra_env: "GCP_BILLING_PROJECT_ID=microservices-489413#GCP_BILLING_DATASET=billing_export#GCP_BILLING_TABLE=gcp_billing_export"
           - service: projects-service
             dockerfile: projects-service/Dockerfile
             cloud_run_service: projects-service
@@ -253,8 +255,8 @@ jobs:
             --max-instances 3 \
             --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
             --add-cloudsql-instances "${{ env.CLOUD_SQL_INSTANCE }}" \
-            --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}" \
-            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest" \
+            --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}${{ matrix.extra_env && format('#{0}', matrix.extra_env) || '' }}" \
+            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest${{ matrix.extra_secrets && format(',{0}', matrix.extra_secrets) || '' }}" \
             --quiet
 
       - name: Allow unauthenticated access
