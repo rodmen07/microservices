@@ -463,6 +463,10 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
 
     match actions_resp {
         Err(e) => result.errors.push(format!("GitHub Actions billing request failed: {e}")),
+        Ok(r) if r.status() == reqwest::StatusCode::NOT_FOUND => {
+            // 404 = no paid usage data available (free-tier account); treat as zero spend.
+            result.records_skipped += 1;
+        }
         Ok(r) if !r.status().is_success() => {
             let status = r.status();
             let body = r.text().await.unwrap_or_default();
