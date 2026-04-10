@@ -1,9 +1,7 @@
 FROM rust:latest AS builder
 WORKDIR /app
 COPY . .
-RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 && rm -rf /var/lib/apt/lists/* \
-    && sqlite3 /tmp/build.db < activities-service/migrations/0001_create_activities.sql \
-    && DATABASE_URL=sqlite:////tmp/build.db cargo build --release -p activities-service
+RUN cargo build --release -p activities-service
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*

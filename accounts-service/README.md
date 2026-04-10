@@ -48,5 +48,5 @@ Update account:
 
 ## Notes
 
-- Current persistence is in-memory for rapid prototyping.
-- Next step: migrate to SQLite/Postgres with tenant-safe indexing.
+- Persistence: PostgreSQL via Cloud SQL (GCP). Schema managed by sqlx migrations (`migrations/0001_create_accounts.sql`).
+- `DATABASE_URL` injected at runtime from Secret Manager (Cloud Run). Local default: `postgres://postgres:postgres@localhost:5432/accounts`.

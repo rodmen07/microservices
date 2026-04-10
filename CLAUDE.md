@@ -243,12 +243,12 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v0.5.1 | reporting-service production upgrade (SQLite, JWT auth, saved report CRUD, /dashboard) | Published (2026-03-23) |
+| v0.5.1 | reporting-service production upgrade (PostgreSQL, JWT auth, saved report CRUD, /dashboard) | Published (2026-03-23) |
 | v0.5.2 | search-service write-through indexing (upsert/delete from CRM services, retry logic) | Published (2026-03-23) |
-| v0.5.3 | activities-service production upgrade (SQLite, JWT auth, CRUD) | Published (2026-03-23) |
-| v0.5.4 | automation-service production upgrade (SQLite, JWT auth, workflow rules) | Published (2026-03-23) |
-| v0.5.5 | integrations-service production upgrade (SQLite, JWT auth, connection registry) | Published (2026-03-23) |
-| v0.5.6 | opportunities-service production upgrade (SQLite, JWT auth, stage tracking) | Published (2026-03-23) |
+| v0.5.3 | activities-service production upgrade (PostgreSQL, JWT auth, CRUD) | Published (2026-03-23) |
+| v0.5.4 | automation-service production upgrade (PostgreSQL, JWT auth, workflow rules) | Published (2026-03-23) |
+| v0.5.5 | integrations-service production upgrade (PostgreSQL, JWT auth, connection registry) | Published (2026-03-23) |
+| v0.5.6 | opportunities-service production upgrade (PostgreSQL, JWT auth, stage tracking) | Published (2026-03-23) |
 
 ### v1.0 — Client Portal ✅ Complete
 
@@ -282,7 +282,7 @@ Every location that must be updated when publishing a version. This list is the 
 
 ## Service upgrade history
 
-All nine Rust services have been upgraded from stubs to production-grade (SQLite, JWT auth, full CRUD). The upgrade followed this standard checklist:
+All nine Rust services have been upgraded from stubs to production-grade (PostgreSQL via Cloud SQL, JWT auth, full CRUD). The upgrade followed this standard checklist:
 1. Update `Cargo.toml` — add sqlx, jsonwebtoken, chrono; upgrade axum to 0.8, tower-http to 0.6
 2. Add `[lib]` + `[[bin]]` sections to `Cargo.toml`
 3. Create `migrations/0001_create_<table>.sql`
