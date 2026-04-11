@@ -25,6 +25,7 @@ locals {
     search        = "postgresql://search_user:${var.db_password}@${local.encoded_socket}/search"
     spend         = "postgresql://spend_user:${var.db_password}@${local.encoded_socket}/spend"
     projects      = "postgresql://projects_user:${var.db_password}@${local.encoded_socket}/projects"
+    audit         = "postgresql://audit_user:${var.db_password}@${local.encoded_socket}/audit"
   }
 }
 

@@ -68,3 +68,9 @@ variable "activities_service_url" {
   type        = string
   default     = ""
 }
+
+variable "audit_service_url" {
+  description = "Cloud Run URL for audit-service (used by CRM services to emit audit events)"
+  type        = string
+  default     = ""
+}

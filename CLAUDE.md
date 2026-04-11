@@ -25,7 +25,9 @@ InfraPortal: a portfolio microservices system. Ten independently deployed Rust s
 
 ## Shell / build environment
 
-`cargo` is NOT on the bash tool PATH. It is only available in the user's VS Code integrated terminal. Do NOT attempt to run `cargo build`, `cargo test`, or `cargo check` via the Bash tool — they will fail silently or with "command not found". Write correct code and let the user build. If a type error is suspected, reason through it manually rather than running the compiler.
+`cargo` is NOT available in the Windows bash shell due to missing `dlltool.exe`. Do NOT attempt to run `cargo build`, `cargo test`, or `cargo check` via the Bash tool — they will fail with "error calling dlltool 'dlltool.exe': program not found". Write correct code and let the user build.
+
+**Workaround:** `cargo` IS available in the VS Code integrated terminal using WSL (Ubuntu 22.04). The user can open the integrated terminal (Ctrl+`) and run commands there. If a type error is suspected, reason through it manually rather than running the compiler.
 
 The workspace has a GitHub Actions CI pipeline (`.github/workflows/rust.yml`) that runs `cargo build` and `cargo test` on push.
 

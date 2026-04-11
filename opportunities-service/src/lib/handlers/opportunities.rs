@@ -15,6 +15,30 @@ use crate::{
     models::{ApiError, CreateOpportunityRequest, Opportunity, UpdateOpportunityRequest},
 };
 
+// Fire-and-forget audit event emission; errors are silently ignored
+async fn emit_audit(
+    client: &reqwest::Client,
+    entity_type: &'static str,
+    entity_id: &str,
+    action: &'static str,
+    actor_id: &str,
+    entity_label: Option<&str>,
+    auth_header: &str,
+) {
+    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else { return };
+    if url.trim().is_empty() { return }
+    let body = serde_json::json!({
+        "entity_type": entity_type, "entity_id": entity_id,
+        "action": action, "actor_id": actor_id, "entity_label": entity_label,
+    });
+    let _ = client
+        .post(format!("{}/api/v1/audit-events", url.trim_end_matches('/')))
+        .header("Authorization", auth_header)
+        .json(&body)
+        .send()
+        .await;
+}
+
 // Builds a JSON error response with the given HTTP status, error code, and message
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     let body = Json(ApiError {
@@ -193,6 +217,9 @@ pub async fn create_opportunity(
         ),
     );
 
+    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    emit_audit(&state.http_client, "opportunity", &created.id, "created", &owner_id, Some(&created.name), &auth_hdr).await;
+
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -316,6 +343,9 @@ pub async fn update_opportunity(
         ),
     );
 
+    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    emit_audit(&state.http_client, "opportunity", &updated.id, "updated", &updated.owner_id, Some(&updated.name), &auth_hdr).await;
+
     Ok(Json(updated))
 }
 
@@ -356,6 +386,8 @@ pub async fn delete_opportunity(
         ));
     }
 
+    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    emit_audit(&state.http_client, "opportunity", &id, "deleted", &claims.sub, None, &auth_hdr).await;
     crate::pipeline::delete_search_document(state.http_client.clone(), id);
     Ok(StatusCode::NO_CONTENT)
 }

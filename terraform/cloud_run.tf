@@ -4,17 +4,23 @@ locals {
   # Map service name → { db_key, port, extra_env }
   # extra_env: plain-value env vars injected in addition to DATABASE_URL, AUTH_JWT_SECRET, ALLOWED_ORIGINS.
   rust_services = {
-    "accounts-service"     = { db_key = "accounts",      port = 8080, extra_env = {} }
+    "accounts-service"     = { db_key = "accounts",      port = 8080, extra_env = {
+      AUDIT_SERVICE_URL = var.audit_service_url
+    }}
     "contacts-service"     = { db_key = "contacts",      port = 8080, extra_env = {
       ACCOUNTS_SERVICE_URL = var.accounts_service_url
+      AUDIT_SERVICE_URL    = var.audit_service_url
     }}
     "activities-service"   = { db_key = "activities",    port = 8080, extra_env = {
       ACCOUNTS_SERVICE_URL = var.accounts_service_url
       CONTACTS_SERVICE_URL = var.contacts_service_url
+      AUDIT_SERVICE_URL    = var.audit_service_url
     }}
     "automation-service"   = { db_key = "automation",    port = 8080, extra_env = {} }
     "integrations-service" = { db_key = "integrations",  port = 8080, extra_env = {} }
-    "opportunities-service" = { db_key = "opportunities", port = 8080, extra_env = {} }
+    "opportunities-service" = { db_key = "opportunities", port = 8080, extra_env = {
+      AUDIT_SERVICE_URL = var.audit_service_url
+    }}
     "reporting-service"    = { db_key = "reporting",     port = 8080, extra_env = {
       ACCOUNTS_SERVICE_URL  = var.accounts_service_url
       CONTACTS_SERVICE_URL  = var.contacts_service_url
@@ -23,6 +29,7 @@ locals {
     }}
     "search-service"       = { db_key = "search",        port = 8080, extra_env = {} }
     "spend-service"        = { db_key = "spend",         port = 8080, extra_env = {} }
+    "audit-service"        = { db_key = "audit",         port = 8080, extra_env = {} }
   }
 
   # backend-service (task-api) uses "tasks" DB

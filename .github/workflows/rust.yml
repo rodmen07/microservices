@@ -48,7 +48,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          for db in accounts contacts activities workflows connections opportunities reports documents spend projects; do
+          for db in accounts contacts activities workflows connections opportunities reports documents spend projects audit; do
             psql -h localhost -U postgres -c "CREATE DATABASE ${db};"
           done
 
@@ -64,6 +64,7 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/documents     cargo clippy -p search-service        -- -D warnings
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/spend         cargo clippy -p spend-service         -- -D warnings
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo clippy -p projects-service      -- -D warnings
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo clippy -p audit-service         -- -D warnings
 
       - name: Test — all services
         env:
@@ -80,6 +81,7 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/documents     cargo test -p search-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/spend         cargo test -p spend-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo test -p audit-service
 
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
@@ -177,6 +179,10 @@ jobs:
             dockerfile: projects-service/Dockerfile
             cloud_run_service: projects-service
             db_secret: DATABASE_URL_PROJECTS
+          - service: audit-service
+            dockerfile: audit-service/Dockerfile
+            cloud_run_service: audit-service
+            db_secret: DATABASE_URL_AUDIT
 
     env:
       GCP_REGION: us-central1
