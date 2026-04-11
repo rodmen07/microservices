@@ -49,12 +49,24 @@ resource "google_cloud_run_v2_service" "rust_services" {
       max_instance_count = 3
     }
 
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.main.connection_name]
+      }
+    }
+
     containers {
       # Bootstrap with a public image; CI later deploys service-specific images.
       image = "us-docker.pkg.dev/cloudrun/container/hello:latest"
 
       ports {
         container_port = each.value.port
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
       }
 
       env {
@@ -110,6 +122,7 @@ resource "google_cloud_run_v2_service" "rust_services" {
     google_secret_manager_secret_version.database_urls,
     google_secret_manager_secret_version.jwt_secret,
     google_artifact_registry_repository.microservices,
+    google_sql_database_instance.main,
   ]
 }
 
@@ -128,11 +141,23 @@ resource "google_cloud_run_v2_service" "task_api" {
       max_instance_count = 3
     }
 
+    volumes {
+      name = "cloudsql"
+      cloud_sql_instance {
+        instances = [google_sql_database_instance.main.connection_name]
+      }
+    }
+
     containers {
       image = "us-docker.pkg.dev/cloudrun/container/hello:latest"
 
       ports {
         container_port = 8080
+      }
+
+      volume_mounts {
+        name       = "cloudsql"
+        mount_path = "/cloudsql"
       }
 
       env {
@@ -180,6 +205,7 @@ resource "google_cloud_run_v2_service" "task_api" {
     google_secret_manager_secret_version.database_urls,
     google_secret_manager_secret_version.jwt_secret,
     google_artifact_registry_repository.microservices,
+    google_sql_database_instance.main,
   ]
 }
 
