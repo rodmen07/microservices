@@ -8,8 +8,8 @@ use crate::app_state::AppState;
 use crate::handlers::{
     health::health,
     reports::{
-        create_report, delete_report, get_dashboard, get_dashboard_summary, get_report,
-        list_reports, update_report,
+        create_report, delete_report, export_reports, get_dashboard, get_dashboard_summary,
+        get_report, list_reports, update_report,
     },
 };
 
@@ -46,6 +46,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/dashboard", get(get_dashboard))
         .route("/api/v1/reports/dashboard", get(get_dashboard_summary))
         .route("/api/v1/reports", get(list_reports).post(create_report))
+        .route("/api/v1/reports/export", get(export_reports))
         .route(
             "/api/v1/reports/{id}",
             get(get_report).patch(update_report).delete(delete_report),

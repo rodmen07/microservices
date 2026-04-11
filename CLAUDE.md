@@ -269,6 +269,15 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v1.1.2 | Portfolio narrative fixes — Dockerfiles cleaned of SQLite; docs corrected to PostgreSQL (Cloud SQL) | Published (2026-04-10) |
 | v1.1.3 | activities-service cross-service validation — account_id/contact_id validated on create; Terraform extra_env wiring | Published (2026-04-10) |
 
+### v1.2 — Operational Maturity
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v1.2.1 | Data export pipeline — bulk CSV/JSON from reporting-service; admin export modal | Planned |
+| v1.2.2 | Audit trail — new audit-service (Rust), immutable CRM mutation log, admin audit page | Planned |
+| v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Planned |
+| v1.2.4 | Service resilience — E2E test suite, load testing, chaos engineering runbook | Planned |
+
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 

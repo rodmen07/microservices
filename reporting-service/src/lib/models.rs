@@ -44,6 +44,18 @@ pub struct DashboardView {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ExportQuery {
+    /// Export format: "csv" or "json" (default: "json")
+    pub format: Option<String>,
+    /// Filter by metric name
+    pub metric: Option<String>,
+    /// Only include reports created on or after this ISO 8601 date
+    pub created_after: Option<String>,
+    /// Only include reports created on or before this ISO 8601 date
+    pub created_before: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateReportRequest {
     pub name: String,
     pub description: Option<String>,

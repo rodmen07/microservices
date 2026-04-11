@@ -11,7 +11,7 @@ use crate::{
     app_state::AppState,
     auth::{validate_authorization_header, AuthClaims},
     models::{
-        ApiError, CreateReportRequest, DashboardSummary, DashboardView, SavedReport,
+        ApiError, CreateReportRequest, DashboardSummary, DashboardView, ExportQuery, SavedReport,
         UpdateReportRequest,
     },
 };
@@ -575,4 +575,165 @@ pub async fn delete_report(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// Exports reports as CSV or JSON with optional metric and date-range filters
+pub async fn export_reports(
+    headers: HeaderMap,
+    Query(params): Query<ExportQuery>,
+    State(state): State<AppState>,
+) -> Result<Response, Response> {
+    let claims = require_auth(&headers)?;
+    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    let format = params
+        .format
+        .as_deref()
+        .unwrap_or("json")
+        .to_ascii_lowercase();
+
+    if format != "csv" && format != "json" {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "INVALID_FORMAT",
+            "format must be 'csv' or 'json'",
+        ));
+    }
+
+    // Build dynamic query with optional filters
+    let mut sql = String::from(
+        "SELECT id, name, description, metric, dimension, created_at, updated_at FROM reports",
+    );
+    let mut conditions: Vec<String> = Vec::new();
+    let mut param_idx: usize = 1;
+
+    if !is_admin {
+        conditions.push(format!("owner_id = ${param_idx}"));
+        param_idx += 1;
+    }
+
+    if params.metric.is_some() {
+        conditions.push(format!("metric = ${param_idx}"));
+        param_idx += 1;
+    }
+
+    if params.created_after.is_some() {
+        conditions.push(format!("created_at >= ${param_idx}"));
+        param_idx += 1;
+    }
+
+    if params.created_before.is_some() {
+        conditions.push(format!("created_at <= ${param_idx}"));
+        // param_idx not needed after last use
+    }
+
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
+    }
+
+    sql.push_str(" ORDER BY created_at DESC");
+
+    let mut query = sqlx::query_as::<_, SavedReport>(&sql);
+
+    if !is_admin {
+        query = query.bind(&claims.sub);
+    }
+    if let Some(ref metric) = params.metric {
+        query = query.bind(metric);
+    }
+    if let Some(ref after) = params.created_after {
+        query = query.bind(after);
+    }
+    if let Some(ref before) = params.created_before {
+        query = query.bind(before);
+    }
+
+    let rows = query.fetch_all(&state.pool).await.map_err(|_| {
+        error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB_ERROR",
+            "database error",
+        )
+    })?;
+
+    let now = chrono::Utc::now().format("%Y%m%d").to_string();
+    let filename = format!("reports-export-{now}");
+
+    if format == "csv" {
+        let mut wtr = csv::Writer::from_writer(Vec::new());
+        wtr.write_record(["id", "name", "description", "metric", "dimension", "created_at", "updated_at"])
+            .map_err(|_| {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "EXPORT_ERROR",
+                    "failed to write CSV header",
+                )
+            })?;
+        for r in &rows {
+            wtr.write_record([
+                &r.id,
+                &r.name,
+                r.description.as_deref().unwrap_or(""),
+                &r.metric,
+                r.dimension.as_deref().unwrap_or(""),
+                &r.created_at,
+                &r.updated_at,
+            ])
+            .map_err(|_| {
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "EXPORT_ERROR",
+                    "failed to write CSV row",
+                )
+            })?;
+        }
+        let csv_bytes = wtr.into_inner().map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EXPORT_ERROR",
+                "failed to finalize CSV",
+            )
+        })?;
+
+        Ok((
+            StatusCode::OK,
+            [
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "text/csv; charset=utf-8".to_string(),
+                ),
+                (
+                    axum::http::header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{filename}.csv\""),
+                ),
+            ],
+            csv_bytes,
+        )
+            .into_response())
+    } else {
+        let json_bytes = serde_json::to_vec_pretty(&rows).map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EXPORT_ERROR",
+                "failed to serialize JSON",
+            )
+        })?;
+
+        Ok((
+            StatusCode::OK,
+            [
+                (
+                    axum::http::header::CONTENT_TYPE,
+                    "application/json; charset=utf-8".to_string(),
+                ),
+                (
+                    axum::http::header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{filename}.json\""),
+                ),
+            ],
+            json_bytes,
+        )
+            .into_response())
+    }
 }

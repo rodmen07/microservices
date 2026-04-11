@@ -27,6 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["clock"] }
+csv = "1"
 
 [dev-dependencies]
 http-body-util = "0.1"
