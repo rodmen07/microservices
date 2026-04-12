@@ -160,12 +160,27 @@ pub async fn create_activity(
     let activity_type = req.activity_type.trim().to_string();
     let subject = req.subject.trim().to_string();
 
-    if activity_type.is_empty() || subject.is_empty() {
-        return Err(error_response(
+    if activity_type.is_empty() {
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "activity_type and subject are required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "activity_type is required".to_string(),
+                details: Some(serde_json::json!({ "field": "activity_type", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
+    }
+    if subject.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "subject is required".to_string(),
+                details: Some(serde_json::json!({ "field": "subject", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
 
     let auth_header = headers
@@ -175,21 +190,29 @@ pub async fn create_activity(
 
     if let Some(ref account_id) = req.account_id {
         if !account_exists(&state.http_client, account_id, auth_header).await {
-            return Err(error_response(
+            return Err((
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "INVALID_ACCOUNT",
-                "referenced account does not exist",
-            ));
+                Json(ApiError {
+                    code: "INVALID_ACCOUNT".to_string(),
+                    message: "referenced account does not exist".to_string(),
+                    details: Some(serde_json::json!({ "field": "account_id", "value": account_id })),
+                }),
+            )
+                .into_response());
         }
     }
 
     if let Some(ref contact_id) = req.contact_id {
         if !contact_exists(&state.http_client, contact_id, auth_header).await {
-            return Err(error_response(
+            return Err((
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "INVALID_CONTACT",
-                "referenced contact does not exist",
-            ));
+                Json(ApiError {
+                    code: "INVALID_CONTACT".to_string(),
+                    message: "referenced contact does not exist".to_string(),
+                    details: Some(serde_json::json!({ "field": "contact_id", "value": contact_id })),
+                }),
+            )
+                .into_response());
         }
     }
 
@@ -296,11 +319,15 @@ pub async fn update_activity(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "activity_type cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "activity_type cannot be empty".to_string(),
+                        details: Some(serde_json::json!({ "field": "activity_type", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -311,11 +338,15 @@ pub async fn update_activity(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "subject cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "subject cannot be empty".to_string(),
+                        details: Some(serde_json::json!({ "field": "subject", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
