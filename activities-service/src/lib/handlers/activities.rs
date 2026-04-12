@@ -107,6 +107,7 @@ pub async fn list_activities(
             "database error",
         )
     })?;
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_activities ok");
 
     Ok(Json(rows))
 }
@@ -132,7 +133,7 @@ pub async fn get_activity(
         .bind(&claims.sub)
     };
 
-    q.fetch_optional(&state.pool)
+    let activity = q.fetch_optional(&state.pool)
         .await
         .map_err(|_| {
             error_response(
@@ -142,7 +143,10 @@ pub async fn get_activity(
             )
         })?
         .map(Json)
-        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))
+        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "activity not found"))?;
+
+    tracing::debug!(activity_id = %id, actor = %claims.sub, "get_activity ok");
+    Ok(activity)
 }
 
 pub async fn create_activity(
@@ -246,6 +250,7 @@ pub async fn create_activity(
     );
 
     emit_audit(&state.http_client, "activity", &created.id, "created", &owner_id, Some(&created.subject), auth_header).await;
+    tracing::info!(activity_id = %created.id, actor = %owner_id, "activity created");
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
@@ -389,6 +394,7 @@ pub async fn update_activity(
 
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     emit_audit(&state.http_client, "activity", &updated.id, "updated", &updated.owner_id, Some(&updated.subject), &auth_hdr).await;
+    tracing::info!(activity_id = %updated.id, actor = %claims.sub, "activity updated");
 
     Ok(Json(updated))
 }
@@ -431,6 +437,7 @@ pub async fn delete_activity(
 
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     emit_audit(&state.http_client, "activity", &id, "deleted", &claims.sub, None, &auth_hdr).await;
-    crate::pipeline::delete_search_document(state.http_client.clone(), id);
+    crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
+    tracing::info!(activity_id = %id, actor = %claims.sub, "activity deleted");
     Ok(StatusCode::NO_CONTENT)
 }
