@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json; // Import json! macro
 
 use crate::{
     app_state::AppState,
@@ -339,12 +340,20 @@ pub async fn create_report(
     let name = req.name.trim().to_string();
     let metric = req.metric.trim().to_string();
 
-    if name.is_empty() || metric.is_empty() {
-        return Err(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "name and metric are required",
-        ));
+    if name.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "name is required".to_string(),
+            details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+
+    if metric.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "metric is required".to_string(),
+            details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
+        })).into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -444,11 +453,11 @@ pub async fn update_report(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "name cannot be empty",
-                ));
+                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "name cannot be empty".to_string(),
+                    details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                })).into_response());
             }
             t
         }
@@ -459,11 +468,11 @@ pub async fn update_report(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "metric cannot be empty",
-                ));
+                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "metric cannot be empty".to_string(),
+                    details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
+                })).into_response());
             }
             t
         }
@@ -593,11 +602,11 @@ pub async fn export_reports(
         .to_ascii_lowercase();
 
     if format != "csv" && format != "json" {
-        return Err(error_response(
-            StatusCode::BAD_REQUEST,
-            "INVALID_FORMAT",
-            "format must be 'csv' or 'json'",
-        ));
+        return Err((StatusCode::BAD_REQUEST, Json(ApiError {
+            code: "INVALID_FORMAT".to_string(),
+            message: "format must be 'csv' or 'json'".to_string(),
+            details: Some(json!({ "field": "format", "valid_values": ["csv", "json"] })),
+        })).into_response());
     }
 
     // Build dynamic query with optional filters
