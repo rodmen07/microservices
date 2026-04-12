@@ -19,12 +19,14 @@ async fn main() {
         .unwrap_or(8080);
     let database_url = env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/audit".to_string());
+    let observaboard_ingest_url = env::var("OBSERVABOARD_INGEST_URL").ok();
+    let observaboard_api_key = env::var("OBSERVABOARD_API_KEY").ok();
 
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .expect("invalid HOST/PORT combination");
 
-    let state = AppState::from_database_url(&database_url)
+    let state = AppState::new(&database_url, observaboard_ingest_url, observaboard_api_key)
         .await
         .expect("failed to initialise database");
 

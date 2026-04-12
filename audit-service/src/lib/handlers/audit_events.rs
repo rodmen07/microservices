@@ -121,6 +121,46 @@ pub async fn ingest_audit_event(
         created_at,
     };
 
+    // Fire-and-forget: forward to Observaboard if configured
+    if let (Some(url), Some(key)) = (
+        state.observaboard_ingest_url.clone(),
+        state.observaboard_api_key.clone(),
+    ) {
+        let client = state.http.clone();
+        let event_type = format!("{}.{}", event.entity_type, event.action);
+        let obs_payload = serde_json::json!({
+            "source": "infraportal-crm",
+            "event_type": event_type,
+            "payload": {
+                "audit_event_id": event.id,
+                "entity_type": event.entity_type,
+                "entity_id": event.entity_id,
+                "action": event.action,
+                "actor_id": event.actor_id,
+                "entity_label": event.entity_label,
+            }
+        });
+        tokio::spawn(async move {
+            let result = client
+                .post(&url)
+                .header("Authorization", format!("Api-Key {key}"))
+                .json(&obs_payload)
+                .send()
+                .await;
+            match result {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::debug!("observaboard ingest accepted");
+                }
+                Ok(resp) => {
+                    tracing::warn!("observaboard ingest returned {}", resp.status());
+                }
+                Err(e) => {
+                    tracing::warn!("observaboard ingest failed: {e}");
+                }
+            }
+        });
+    }
+
     (StatusCode::CREATED, Json(event)).into_response()
 }
 

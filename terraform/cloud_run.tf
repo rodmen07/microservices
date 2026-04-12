@@ -29,7 +29,10 @@ locals {
     }}
     "search-service"       = { db_key = "search",        port = 8080, extra_env = {} }
     "spend-service"        = { db_key = "spend",         port = 8080, extra_env = {} }
-    "audit-service"        = { db_key = "audit",         port = 8080, extra_env = {} }
+    "audit-service"        = { db_key = "audit",         port = 8080, extra_env = {
+      OBSERVABOARD_INGEST_URL = var.observaboard_ingest_url
+      OBSERVABOARD_API_KEY    = var.observaboard_api_key
+    }}
   }
 
   # backend-service (task-api) uses "tasks" DB

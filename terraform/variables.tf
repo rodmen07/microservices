@@ -74,3 +74,16 @@ variable "audit_service_url" {
   type        = string
   default     = ""
 }
+
+variable "observaboard_ingest_url" {
+  description = "Observaboard /api/ingest/ endpoint URL (audit-service forwards CRM events here)"
+  type        = string
+  default     = ""
+}
+
+variable "observaboard_api_key" {
+  description = "Observaboard API key for audit-service event forwarding (plain tfvar; use Secret Manager in production)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
