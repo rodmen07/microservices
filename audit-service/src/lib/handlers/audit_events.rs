@@ -42,9 +42,10 @@ pub async fn ingest_audit_event(
     State(state): State<AppState>,
     Json(body): Json<CreateAuditEventRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let entity_type = body.entity_type.trim().to_lowercase();
     if !VALID_ENTITY_TYPES.contains(&entity_type.as_str()) {
@@ -103,7 +104,9 @@ pub async fn ingest_audit_event(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {
+            tracing::info!(audit_event_id = %id, entity_id = %entity_id, actor_id = %actor_id, actor = %claims.sub, "audit event ingested");
+        }
         Err(e) => {
             tracing::error!("ingest_audit_event db error: {e}");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
@@ -259,6 +262,13 @@ pub async fn list_audit_events(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
         }
     };
+
+    tracing::debug!(
+        actor = %claims.sub,
+        count = rows.len(),
+        ?params,
+        "list_audit_events ok"
+    );
 
     Json(ListAuditEventsResponse {
         data: rows,
