@@ -271,14 +271,20 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v1.1.2 | Portfolio narrative fixes — Dockerfiles cleaned of SQLite; docs corrected to PostgreSQL (Cloud SQL) | Published (2026-04-10) |
 | v1.1.3 | activities-service cross-service validation — account_id/contact_id validated on create; Terraform extra_env wiring | Published (2026-04-10) |
 
-### v1.2 — Operational Maturity
+### v1.2 — Operational Maturity ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v1.2.1 | Data export pipeline — bulk CSV/JSON from reporting-service; admin export modal | Planned |
-| v1.2.2 | Audit trail — new audit-service (Rust), immutable CRM mutation log, admin audit page | Planned |
-| v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Implemented |
-| v1.2.4 | Service resilience — E2E test suite, load testing, chaos engineering runbook | Implemented |
+| v1.2.1 | Data export pipeline — bulk CSV/JSON from reporting-service; admin export modal | Published (2026-04-11) |
+| v1.2.2 | Audit trail — new audit-service (Rust), immutable CRM mutation log, admin audit page | Published (2026-04-11) |
+| v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Published (2026-04-11) |
+| v1.2.4 | Service resilience — E2E test suite, load testing, chaos engineering runbook | Published (2026-04-11) |
+
+### v1.3 — Autonomous Operations
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|-----------------|
+| v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Implemented (2026-04-12) |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
@@ -291,7 +297,7 @@ Every location that must be updated when publishing a version. This list is the 
 
 | # | Location | Path / URL |
 |---|----------|------------|
-| 1 | Patch Notes page | `standalones/frontend-service/src/pages/PatchNotesPage.tsx` |
+| 1 | Patch Notes page | `infraportal/src/pages/PatchNotesPage.tsx` |
 | 2 | Portfolio README | `README.md` (root of Portfolio repo) |
 | 3 | CLAUDE.md instructions | `microservices/CLAUDE.md` (this file) — update Roadmap table |
 | 4 | Memory — next session todos | `C:\Users\rodme\.claude\projects\d--Projects\memory\project_next_session_todos.md` |
