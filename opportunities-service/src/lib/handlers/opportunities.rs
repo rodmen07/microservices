@@ -95,6 +95,7 @@ pub async fn list_opportunities(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_opportunities ok");
     Ok(Json(rows))
 }
 
@@ -108,9 +109,9 @@ pub async fn get_opportunity(
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
-        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1").bind(id)
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1").bind(&id)
     } else {
-        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1 AND owner_id = $2").bind(id).bind(&claims.sub)
+        sqlx::query_as::<_, Opportunity>("SELECT id, owner_id, account_id, name, stage, amount, close_date, created_at, updated_at FROM opportunities WHERE id = $1 AND owner_id = $2").bind(&id).bind(&claims.sub)
     };
 
     let row = q
@@ -127,6 +128,7 @@ pub async fn get_opportunity(
             error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "opportunity not found")
         })?;
 
+    tracing::debug!(opportunity_id = %row.id, actor = %claims.sub, "get_opportunity ok");
     Ok(Json(row))
 }
 
@@ -189,7 +191,7 @@ pub async fn create_opportunity(
                 close_date, created_at, updated_at
          FROM opportunities WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -220,6 +222,7 @@ pub async fn create_opportunity(
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     emit_audit(&state.http_client, "opportunity", &created.id, "created", &owner_id, Some(&created.name), &auth_hdr).await;
 
+    tracing::info!(opportunity_id = %created.id, actor = %claims.sub, opportunity_name = %created.name, "opportunity created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -346,6 +349,7 @@ pub async fn update_opportunity(
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     emit_audit(&state.http_client, "opportunity", &updated.id, "updated", &updated.owner_id, Some(&updated.name), &auth_hdr).await;
 
+    tracing::info!(opportunity_id = %updated.id, actor = %claims.sub, opportunity_name = %updated.name, "opportunity updated");
     Ok(Json(updated))
 }
 
@@ -388,6 +392,8 @@ pub async fn delete_opportunity(
 
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     emit_audit(&state.http_client, "opportunity", &id, "deleted", &claims.sub, None, &auth_hdr).await;
-    crate::pipeline::delete_search_document(state.http_client.clone(), id);
+    crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
+
+    tracing::info!(opportunity_id = %id, actor = %claims.sub, "opportunity deleted");
     Ok(StatusCode::NO_CONTENT)
 }
