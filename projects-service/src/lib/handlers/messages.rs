@@ -83,6 +83,7 @@ pub async fn list_messages(
         )
     })?;
 
+    tracing::debug!(project_id = %project_id, actor = %claims.sub, count = rows.len(), "list_messages ok");
     Ok(Json(rows))
 }
 
@@ -148,5 +149,6 @@ pub async fn create_message(
         )
     })?;
 
+    tracing::info!(message_id = %id, project_id = %project_id, actor = %claims.sub, "message created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }

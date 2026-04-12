@@ -98,6 +98,7 @@ pub async fn list_milestones(
         )
     })?;
 
+    tracing::debug!(project_id = %project_id, actor = %claims.sub, count = rows.len(), "list_milestones ok");
     Ok(Json(rows))
 }
 
@@ -199,6 +200,7 @@ pub async fn create_milestone(
         )
     })?;
 
+    tracing::info!(milestone_id = %id, project_id = %project_id, actor = %claims.sub, "milestone created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -306,6 +308,7 @@ pub async fn update_milestone(
         )
     })?;
 
+    tracing::info!(milestone_id = %id, project_id = %existing.project_id, actor = %claims.sub, "milestone updated");
     Ok(Json(updated))
 }
 
@@ -337,5 +340,6 @@ pub async fn delete_milestone(
         ));
     }
 
+    tracing::info!(milestone_id = %id, actor = %claims.sub, "milestone deleted");
     Ok(StatusCode::NO_CONTENT)
 }

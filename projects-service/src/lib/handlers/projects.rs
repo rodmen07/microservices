@@ -74,6 +74,7 @@ pub async fn list_projects(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_projects ok");
     Ok(Json(rows))
 }
 
@@ -109,6 +110,7 @@ pub async fn get_project(
         ));
     }
 
+    tracing::debug!(project_id = %id, actor = %claims.sub, "get_project ok");
     Ok(Json(row))
 }
 
@@ -213,6 +215,7 @@ pub async fn create_project(
         ),
     );
 
+    tracing::info!(project_id = %id, actor = %claims.sub, "project created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -344,6 +347,7 @@ pub async fn update_project(
         ),
     );
 
+    tracing::info!(project_id = %id, actor = %claims.sub, "project updated");
     Ok(Json(updated))
 }
 
@@ -375,6 +379,7 @@ pub async fn delete_project(
         ));
     }
 
-    crate::pipeline::delete_search_document(state.http_client.clone(), id);
+    crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
+    tracing::info!(project_id = %id, actor = %claims.sub, "project deleted");
     Ok(StatusCode::NO_CONTENT)
 }
