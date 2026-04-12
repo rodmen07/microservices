@@ -277,7 +277,7 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 |-------------|---------|-----------------|
 | v1.2.1 | Data export pipeline — bulk CSV/JSON from reporting-service; admin export modal | Planned |
 | v1.2.2 | Audit trail — new audit-service (Rust), immutable CRM mutation log, admin audit page | Planned |
-| v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Planned |
+| v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Implemented |
 | v1.2.4 | Service resilience — E2E test suite, load testing, chaos engineering runbook | Planned |
 
 **Completion states:** Planned → Implemented → Published.
