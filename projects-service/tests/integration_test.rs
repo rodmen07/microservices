@@ -369,7 +369,7 @@ async fn create_and_list_deliverables() {
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, &jwt)
                 .body(Body::from(
-                    json!({ "name": "Deploy to staging", "status": "pending" }).to_string(),
+                    json!({ "name": "Deploy to staging", "status": "not_started" }).to_string(),
                 ))
                 .unwrap(),
         )
