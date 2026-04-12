@@ -153,7 +153,9 @@ pub async fn create_milestone(
         ));
     }
 
-    let sort_order = req.sort_order.unwrap_or(0);
+    // Cast to i32: the milestones.sort_order column is INTEGER (INT4); sqlx 0.8
+    // encodes i64 as INT8 which PostgreSQL rejects at binding time.
+    let sort_order = req.sort_order.unwrap_or(0) as i32;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
@@ -263,7 +265,7 @@ pub async fn update_milestone(
         .map(str::trim)
         .map(str::to_string)
         .or(existing.due_date);
-    let sort_order = req.sort_order.unwrap_or(existing.sort_order);
+    let sort_order = req.sort_order.unwrap_or(existing.sort_order) as i32;
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
