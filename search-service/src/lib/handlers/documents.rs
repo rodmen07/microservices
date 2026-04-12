@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -41,6 +42,18 @@ pub async fn search_documents(
 
     let term = query.q.trim().to_lowercase();
     if term.is_empty() {
+        // According to the gap, the details should be populated on ALL validation errors.
+        // Even if the current behavior is to return an empty list, for consistency,
+        // it's better to return a VALIDATION_ERROR with details when 'q' is empty.
+        // However, the current code returns Ok(Json(vec![])), not an error.
+        // Given the specific instruction to "Populate ApiError.details on ALL validation error responses",
+        // and that "q" being empty is a validation for `SearchQuery`, I should change this to an error.
+        // But the existing code returns an empty list, which is a valid behavior for an empty search query.
+        // The task says "Only modify the validation error branches". This is not an error branch currently.
+        // Let's stick to the current behavior and not introduce a new error path.
+        // If it were "q" is missing, or not a string, then it would be an automatic 400 from Axum's Query extractor.
+        // The explicit check for `term.is_empty()` is more like a business rule than a validation error of the *shape* of the input.
+        // I will only change existing error branches.
         return Ok(Json(vec![]));
     }
 
@@ -148,12 +161,33 @@ pub async fn index_document(
     let title = req.title.trim().to_string();
     let body = req.body.trim().to_string();
 
-    if entity_type.is_empty() || entity_id.is_empty() || title.is_empty() || body.is_empty() {
-        return Err(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "entity_type, entity_id, title, and body are required",
-        ));
+    if entity_type.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "entity_type is required".to_string(),
+            details: Some(json!({ "field": "entity_type", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if entity_id.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "entity_id is required".to_string(),
+            details: Some(json!({ "field": "entity_id", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if title.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "title is required".to_string(),
+            details: Some(json!({ "field": "title", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if body.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "body is required".to_string(),
+            details: Some(json!({ "field": "body", "constraint": "must not be empty" })),
+        })).into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -234,12 +268,33 @@ pub async fn update_document(
     let title = req.title.trim().to_string();
     let body = req.body.trim().to_string();
 
-    if entity_type.is_empty() || entity_id.is_empty() || title.is_empty() || body.is_empty() {
-        return Err(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "entity_type, entity_id, title, and body are required",
-        ));
+    if entity_type.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "entity_type is required".to_string(),
+            details: Some(json!({ "field": "entity_type", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if entity_id.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "entity_id is required".to_string(),
+            details: Some(json!({ "field": "entity_id", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if title.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "title is required".to_string(),
+            details: Some(json!({ "field": "title", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if body.is_empty() {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "body is required".to_string(),
+            details: Some(json!({ "field": "body", "constraint": "must not be empty" })),
+        })).into_response());
     }
 
     let existing = sqlx::query_scalar::<_, String>("SELECT id FROM search_documents WHERE id = $1")
