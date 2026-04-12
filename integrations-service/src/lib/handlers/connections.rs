@@ -93,12 +93,25 @@ pub async fn create_connection(
     let provider = req.provider.trim().to_string();
     let account_ref = req.account_ref.trim().to_string();
 
-    if provider.is_empty() || account_ref.is_empty() {
-        return Err(error_response(
+    if provider.is_empty() {
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "provider and account_ref are required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "provider is required".to_string(),
+                details: Some(serde_json::json!({ "field": "provider", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
+    }
+    if account_ref.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_ref is required".to_string(),
+                details: Some(serde_json::json!({ "field": "account_ref", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -164,11 +177,14 @@ pub async fn update_connection(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "status cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "status cannot be empty".to_string(),
+                        details: Some(serde_json::json!({ "field": "status", "constraint": "must not be empty" })),
+                    }),
+                ).into_response());
             }
             t
         }
