@@ -141,18 +141,24 @@ pub async fn create_opportunity(
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "name is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name is required".to_string(),
+                details: Some(serde_json::json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
     }
     if req.account_id.trim().is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "account_id is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_id is required".to_string(),
+                details: Some(serde_json::json!({ "field": "account_id", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
     }
 
     let stage = req
@@ -262,11 +268,14 @@ pub async fn update_opportunity(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "name cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name cannot be empty".to_string(),
+                        details: Some(serde_json::json!({ "field": "name", "constraint": "must not be empty" })),
+                    }),
+                ).into_response());
             }
             t
         }
@@ -277,11 +286,14 @@ pub async fn update_opportunity(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "stage cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "stage cannot be empty".to_string(),
+                        details: Some(serde_json::json!({ "field": "stage", "constraint": "must not be empty" })),
+                    }),
+                ).into_response());
             }
             t
         }
