@@ -24,10 +24,10 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<String, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|_| ())
+        .map(|claims| claims.sub)
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -36,7 +36,7 @@ pub async fn list_connections(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<IntegrationConnection>>, Response> {
-    require_auth(&headers)?;
+    let actor = require_auth(&headers)?;
 
     let rows = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -44,7 +44,8 @@ pub async fn list_connections(
     )
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for list_connections");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -52,6 +53,7 @@ pub async fn list_connections(
         )
     })?;
 
+    tracing::debug!(actor = %actor, count = rows.len(), "list_connections ok");
     Ok(Json(rows))
 }
 
@@ -61,16 +63,17 @@ pub async fn get_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    require_auth(&headers)?;
+    let actor = require_auth(&headers)?;
 
     let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for get_connection");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -79,6 +82,7 @@ pub async fn get_connection(
     })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found"))?;
 
+    tracing::debug!(connection_id = %row.id, actor = %actor, "get_connection ok");
     Ok(Json(row))
 }
 
@@ -88,7 +92,7 @@ pub async fn create_connection(
     State(state): State<AppState>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let actor = require_auth(&headers)?;
 
     let provider = req.provider.trim().to_string();
     let account_ref = req.account_ref.trim().to_string();
@@ -115,16 +119,20 @@ pub async fn create_connection(
     .bind(&now)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for create_connection");
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+    })?;
 
     let created = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for create_connection (fetch)");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -132,6 +140,7 @@ pub async fn create_connection(
         )
     })?;
 
+    tracing::info!(connection_id = %created.id, actor = %actor, "create_connection ok");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -142,7 +151,7 @@ pub async fn update_connection(
     State(state): State<AppState>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    require_auth(&headers)?;
+    let actor = require_auth(&headers)?;
 
     let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -151,7 +160,8 @@ pub async fn update_connection(
     .bind(&id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for update_connection (fetch existing)");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -192,7 +202,8 @@ pub async fn update_connection(
     .bind(&id)
     .execute(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for update_connection");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -207,7 +218,8 @@ pub async fn update_connection(
     .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error for update_connection (fetch updated)");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -215,6 +227,7 @@ pub async fn update_connection(
         )
     })?;
 
+    tracing::info!(connection_id = %updated.id, actor = %actor, "update_connection ok");
     Ok(Json(updated))
 }
 
@@ -224,13 +237,14 @@ pub async fn delete_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let actor = require_auth(&headers)?;
 
     let result = sqlx::query("DELETE FROM connections WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            tracing::error!(error = %e, "database error for delete_connection");
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
@@ -246,5 +260,6 @@ pub async fn delete_connection(
         ));
     }
 
+    tracing::info!(connection_id = %id, actor = %actor, "delete_connection ok");
     Ok(StatusCode::NO_CONTENT)
 }
