@@ -5,6 +5,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
@@ -96,12 +97,40 @@ pub async fn create_workflow(
     let trigger_event = req.trigger_event.trim().to_string();
     let action_type = req.action_type.trim().to_string();
 
-    if name.is_empty() || trigger_event.is_empty() || action_type.is_empty() {
-        return Err(error_response(
+    if name.is_empty() {
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "name, trigger_event, and action_type are required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name is required".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
+    }
+
+    if trigger_event.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "trigger_event is required".to_string(),
+                details: Some(json!({ "field": "trigger_event", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
+    }
+
+    if action_type.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "action_type is required".to_string(),
+                details: Some(json!({ "field": "action_type", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -170,11 +199,15 @@ pub async fn update_workflow(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "name cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name cannot be empty".to_string(),
+                        details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -185,11 +218,15 @@ pub async fn update_workflow(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "trigger_event cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "trigger_event cannot be empty".to_string(),
+                        details: Some(json!({ "field": "trigger_event", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -200,11 +237,15 @@ pub async fn update_workflow(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "action_type cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "action_type cannot be empty".to_string(),
+                        details: Some(json!({ "field": "action_type", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
