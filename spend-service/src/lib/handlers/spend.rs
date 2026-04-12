@@ -45,9 +45,10 @@ pub async fn list_spend(
     State(state): State<AppState>,
     Query(params): Query<ListSpendQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let limit = params.limit.unwrap_or(50).clamp(1, 200) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -118,6 +119,18 @@ pub async fn list_spend(
         }
     };
 
+    tracing::debug!(
+        actor = %claims.sub,
+        count = rows.len(),
+        limit = %limit,
+        offset = %offset,
+        platform = ?params.platform,
+        date_from = ?params.date_from,
+        date_to = ?params.date_to,
+        source = ?params.source,
+        "list_spend ok"
+    );
+
     Json(ListSpendResponse {
         data: rows,
         total,
@@ -132,9 +145,10 @@ pub async fn get_spend(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -143,7 +157,10 @@ pub async fn get_spend(
     .fetch_optional(&state.pool)
     .await
     {
-        Ok(Some(record)) => Json(record).into_response(),
+        Ok(Some(record)) => {
+            tracing::debug!(spend_id = %record.id, actor = %claims.sub, "get_spend ok");
+            Json(record).into_response()
+        },
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "spend record not found"),
         Err(e) => {
             tracing::error!("get_spend db error: {e}");
@@ -157,9 +174,10 @@ pub async fn create_spend(
     State(state): State<AppState>,
     Json(body): Json<CreateSpendRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let platform = body.platform.trim().to_lowercase();
     if !VALID_PLATFORMS.contains(&platform.as_str()) {
@@ -227,8 +245,7 @@ pub async fn create_spend(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9)",
+        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)\n         VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9)",
     )
     .bind(&id)
     .bind(&platform)
@@ -242,7 +259,9 @@ pub async fn create_spend(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {
+            tracing::info!(spend_id = %id, actor = %claims.sub, "spend record created");
+        }
         Err(e) => {
             tracing::error!("create_spend db error: {e}");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
@@ -271,9 +290,10 @@ pub async fn update_spend(
     State(state): State<AppState>,
     Json(body): Json<UpdateSpendRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -403,7 +423,9 @@ pub async fn update_spend(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {
+            tracing::info!(spend_id = %id, actor = %claims.sub, "spend record updated");
+        }
         Err(e) => {
             tracing::error!("update_spend db error: {e}");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
@@ -431,9 +453,10 @@ pub async fn delete_spend(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -463,7 +486,10 @@ pub async fn delete_spend(
         .execute(&state.pool)
         .await
     {
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            tracing::info!(spend_id = %id, actor = %claims.sub, "spend record deleted");
+            StatusCode::NO_CONTENT.into_response()
+        },
         Err(e) => {
             tracing::error!("delete_spend db error: {e}");
             error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
@@ -476,9 +502,10 @@ pub async fn get_summary(
     State(state): State<AppState>,
     Query(params): Query<SummaryQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let mut where_clauses = Vec::new();
     let mut params_vec: Vec<String> = Vec::new();
@@ -554,6 +581,8 @@ pub async fn get_summary(
         }
     };
 
+    tracing::debug!(actor = %claims.sub, date_from = ?params.date_from, date_to = ?params.date_to, total_usd = %total_usd, "get_summary ok");
+
     Json(SpendSummary {
         total_usd,
         by_platform,
@@ -563,37 +592,69 @@ pub async fn get_summary(
 }
 
 pub async fn sync_gcp(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let result = crate::sync::pull_gcp_billing(&state.pool, &state.http_client).await;
+    tracing::info!(
+        platform = %result.platform,
+        records_imported = %result.records_imported,
+        records_skipped = %result.records_skipped,
+        actor = %claims.sub,
+        "gcp billing sync complete"
+    );
     Json(result).into_response()
 }
 
 pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let result = crate::sync::pull_flyio_billing(&state.pool, &state.http_client).await;
+    tracing::info!(
+        platform = %result.platform,
+        records_imported = %result.records_imported,
+        records_skipped = %result.records_skipped,
+        actor = %claims.sub,
+        "flyio billing sync complete"
+    );
     Json(result).into_response()
 }
 
 pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let result = crate::sync::pull_github_billing(&state.pool, &state.http_client).await;
+    tracing::info!(
+        platform = %result.platform,
+        records_imported = %result.records_imported,
+        records_skipped = %result.records_skipped,
+        actor = %claims.sub,
+        "github billing sync complete"
+    );
     Json(result).into_response()
 }
 
 pub async fn sync_aws(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_auth(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let result = crate::sync::pull_aws_billing(&state.pool, &state.http_client).await;
+    tracing::info!(
+        platform = %result.platform,
+        records_imported = %result.records_imported,
+        records_skipped = %result.records_skipped,
+        actor = %claims.sub,
+        "aws billing sync complete"
+    );
     Json(result).into_response()
 }
