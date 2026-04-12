@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -122,18 +123,26 @@ pub async fn create_project(
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "name is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name is required".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
     if req.account_id.trim().is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "account_id is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_id is required".to_string(),
+                details: Some(json!({ "field": "account_id", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
 
     let status = req
@@ -145,11 +154,15 @@ pub async fn create_project(
         .to_string();
 
     if !VALID_STATUSES.contains(&status.as_str()) {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "status must be one of: planning, active, on_hold, completed, cancelled",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "status must be one of: planning, active, on_hold, completed, cancelled".to_string(),
+                details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+            }),
+        )
+            .into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -246,11 +259,15 @@ pub async fn update_project(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "name cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name cannot be empty".to_string(),
+                        details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -261,11 +278,15 @@ pub async fn update_project(
         Some(v) => {
             let t = v.trim().to_string();
             if !VALID_STATUSES.contains(&t.as_str()) {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "status must be one of: planning, active, on_hold, completed, cancelled",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "status must be one of: planning, active, on_hold, completed, cancelled".to_string(),
+                        details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }

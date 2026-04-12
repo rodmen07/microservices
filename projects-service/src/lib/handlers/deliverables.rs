@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -144,11 +145,15 @@ pub async fn create_deliverable(
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "name is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name is required".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
 
     let status = req
@@ -160,11 +165,15 @@ pub async fn create_deliverable(
         .to_string();
 
     if !VALID_STATUSES.contains(&status.as_str()) {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "status must be one of: not_started, in_progress, in_review, accepted",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "status must be one of: not_started, in_progress, in_review, accepted".to_string(),
+                details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+            }),
+        )
+            .into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -239,11 +248,15 @@ pub async fn update_deliverable(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "name cannot be empty",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name cannot be empty".to_string(),
+                        details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -254,11 +267,15 @@ pub async fn update_deliverable(
         Some(v) => {
             let t = v.trim().to_string();
             if !VALID_STATUSES.contains(&t.as_str()) {
-                return Err(error_response(
+                return Err((
                     StatusCode::UNPROCESSABLE_ENTITY,
-                    "VALIDATION_ERROR",
-                    "status must be one of: not_started, in_progress, in_review, accepted",
-                ));
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "status must be one of: not_started, in_progress, in_review, accepted".to_string(),
+                        details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
