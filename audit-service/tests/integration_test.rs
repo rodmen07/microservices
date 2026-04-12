@@ -119,6 +119,21 @@ async fn list_requires_admin_role() {
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
+#[tokio::test]
+async fn list_audit_events_no_auth_is_401() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/audit-events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
 // ── Ingest ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
