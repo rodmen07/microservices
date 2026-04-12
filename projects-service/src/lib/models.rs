@@ -61,7 +61,7 @@ pub struct Milestone {
     pub description: Option<String>,
     pub due_date: Option<String>,
     pub status: String,
-    pub sort_order: i64,
+    pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -265,7 +265,7 @@ pub async fn update_milestone(
         .map(str::trim)
         .map(str::to_string)
         .or(existing.due_date);
-    let sort_order = req.sort_order.unwrap_or(existing.sort_order) as i32;
+    let sort_order = req.sort_order.map(|v| v as i32).unwrap_or(existing.sort_order);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
