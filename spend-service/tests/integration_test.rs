@@ -169,7 +169,7 @@ async fn create_invalid_platform_rejected() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     let body = body_json(resp.into_body()).await;
     assert_eq!(body["code"], "VALIDATION_ERROR");
 }
