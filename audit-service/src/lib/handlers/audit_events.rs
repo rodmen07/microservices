@@ -54,7 +54,7 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid entity_type".to_string(),
-                details: Some(serde_json::json!({ "valid_values": VALID_ENTITY_TYPES })),
+                details: Some(serde_json::json!({ "field": "entity_type", "valid_values": VALID_ENTITY_TYPES })),
             }),
         )
             .into_response();
@@ -67,7 +67,7 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid action".to_string(),
-                details: Some(serde_json::json!({ "valid_values": VALID_ACTIONS })),
+                details: Some(serde_json::json!({ "field": "action", "valid_values": VALID_ACTIONS })),
             }),
         )
             .into_response();
@@ -75,12 +75,28 @@ pub async fn ingest_audit_event(
 
     let entity_id = body.entity_id.trim().to_string();
     if entity_id.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "entity_id is required");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "entity_id is required".to_string(),
+                details: Some(serde_json::json!({ "field": "entity_id", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
     }
 
     let actor_id = body.actor_id.trim().to_string();
     if actor_id.is_empty() {
-        return error_response(StatusCode::BAD_REQUEST, "VALIDATION_ERROR", "actor_id is required");
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "actor_id is required".to_string(),
+                details: Some(serde_json::json!({ "field": "actor_id", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
     }
 
     let entity_label = body.entity_label.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
