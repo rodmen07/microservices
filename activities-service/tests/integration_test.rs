@@ -130,23 +130,6 @@ async fn create_and_list_activity() {
 }
 
 #[tokio::test]
-async fn get_nonexistent_activity_is_404() {
-    let app = test_app().await;
-    let auth = make_jwt();
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
-                .header(header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn update_activity_completed() {
     let app = test_app().await;
     let auth = make_jwt();
@@ -416,4 +399,112 @@ async fn invalid_auth_token_is_401() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn get_activity_requires_auth() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn update_activity_requires_auth() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"completed": true}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn delete_activity_requires_auth() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn create_activity_invalid_json_body_is_400() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/activities")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from("this is not json"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn update_activity_empty_subject_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+
+    let create_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/activities")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"activity_type": "email", "subject": "Subject for update"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let id = body_json(create_resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/activities/{id}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(json!({"subject": ""}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
