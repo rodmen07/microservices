@@ -79,6 +79,7 @@ pub async fn get_dashboard_summary(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, "get_dashboard_summary ok");
     Ok(Json(DashboardSummary {
         active_reports: count,
         core_metrics: metric_rows,
@@ -221,6 +222,7 @@ pub async fn get_dashboard(
     )
     .await?;
 
+    tracing::debug!(actor = %claims.sub, ?target_user, "get_dashboard ok");
     Ok(Json(DashboardView {
         accounts,
         contacts,
@@ -272,6 +274,7 @@ pub async fn list_reports(
         })?
     };
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_reports ok");
     Ok(Json(rows))
 }
 
@@ -325,6 +328,7 @@ pub async fn get_report(
         }
     }
 
+    tracing::debug!(report_id = %id, actor = %claims.sub, "get_report ok");
     Ok(Json(row))
 }
 
@@ -376,7 +380,7 @@ pub async fn create_report(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -387,6 +391,7 @@ pub async fn create_report(
         )
     })?;
 
+    tracing::info!(report_id = %created.id, actor = %claims.sub, "report created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -519,6 +524,7 @@ pub async fn update_report(
         )
     })?;
 
+    tracing::info!(report_id = %updated.id, actor = %claims.sub, "report updated");
     Ok(Json(updated))
 }
 
@@ -555,7 +561,7 @@ pub async fn delete_report(
     }
 
     let result = sqlx::query("DELETE FROM reports WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -573,7 +579,8 @@ pub async fn delete_report(
             "report not found",
         ));
     }
-
+    
+    tracing::info!(report_id = %id, actor = %claims.sub, "report deleted");
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -696,6 +703,7 @@ pub async fn export_reports(
             )
         })?;
 
+        tracing::debug!(actor = %claims.sub, format = %format, count = rows.len(), "export_reports ok");
         Ok((
             StatusCode::OK,
             [
@@ -705,7 +713,7 @@ pub async fn export_reports(
                 ),
                 (
                     axum::http::header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{filename}.csv\""),
+                    format!("attachment; filename=\"{}.csv\"", filename),
                 ),
             ],
             csv_bytes,
@@ -720,6 +728,7 @@ pub async fn export_reports(
             )
         })?;
 
+        tracing::debug!(actor = %claims.sub, format = %format, count = rows.len(), "export_reports ok");
         Ok((
             StatusCode::OK,
             [
@@ -729,7 +738,7 @@ pub async fn export_reports(
                 ),
                 (
                     axum::http::header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{filename}.json\""),
+                    format!("attachment; filename=\"{}.json\"", filename),
                 ),
             ],
             json_bytes,
