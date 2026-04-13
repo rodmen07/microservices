@@ -10,6 +10,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Cancel any in-progress run for the same branch when a new push arrives.
+# This prevents two concurrent deploys from racing on the same Cloud Run
+# service and hitting GCP's optimistic-concurrency (ETag) conflict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ─── Lint & test ────────────────────────────────────────────────────────────
   test:
@@ -250,20 +257,26 @@ jobs:
       - name: Deploy to Cloud Run
         if: steps.deploy_config.outputs.enabled == 'true'
         run: |
-          gcloud run deploy "${{ matrix.cloud_run_service }}" \
-            --image "$IMAGE" \
-            --region "${{ env.GCP_REGION }}" \
-            --platform managed \
-            --port 8080 \
-            --memory 512Mi \
-            --cpu 1 \
-            --min-instances 0 \
-            --max-instances 3 \
-            --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
-            --add-cloudsql-instances "${{ env.CLOUD_SQL_INSTANCE }}" \
-            --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}${{ matrix.extra_env && format('#{0}', matrix.extra_env) || '' }}" \
-            --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest${{ matrix.extra_secrets && format(',{0}', matrix.extra_secrets) || '' }}" \
-            --quiet
+          # Retry up to 3 times with backoff to handle transient GCP
+          # optimistic-concurrency (ETag) conflicts (ABORTED status).
+          for attempt in 1 2 3; do
+            gcloud run deploy "${{ matrix.cloud_run_service }}" \
+              --image "$IMAGE" \
+              --region "${{ env.GCP_REGION }}" \
+              --platform managed \
+              --port 8080 \
+              --memory 512Mi \
+              --cpu 1 \
+              --min-instances 0 \
+              --max-instances 3 \
+              --service-account "${{ secrets.GCP_SERVICE_ACCOUNT }}" \
+              --add-cloudsql-instances "${{ env.CLOUD_SQL_INSTANCE }}" \
+              --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}${{ matrix.extra_env && format('#{0}', matrix.extra_env) || '' }}" \
+              --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest${{ matrix.extra_secrets && format(',{0}', matrix.extra_secrets) || '' }}" \
+              --quiet && break
+            echo "::warning::Deploy attempt $attempt failed for ${{ matrix.cloud_run_service }}. Retrying in $((attempt * 20))s..."
+            sleep $((attempt * 20))
+          done
 
       - name: Allow unauthenticated access
         if: steps.deploy_config.outputs.enabled == 'true'
