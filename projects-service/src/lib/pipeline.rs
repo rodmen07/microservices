@@ -16,8 +16,20 @@ pub fn emit_event(
         "payload": payload,
     });
     tokio::spawn(async move {
-        if let Err(e) = client.post(&url).json(&body).send().await {
-            tracing::warn!("pipeline emit failed: {e}");
+        match client.post(&url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {}
+            Ok(resp) => tracing::warn!(
+                status = %resp.status(),
+                source = %source,
+                event_type = %event_type,
+                "pipeline emit returned non-success status"
+            ),
+            Err(e) => tracing::warn!(
+                error = %e,
+                source = %source,
+                event_type = %event_type,
+                "pipeline emit failed"
+            ),
         }
     });
 }
