@@ -93,6 +93,7 @@ pub struct Deliverable {
     pub name: String,
     pub description: Option<String>,
     pub status: String,
+    pub estimated_hours: Option<f64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -102,6 +103,7 @@ pub struct CreateDeliverableRequest {
     pub name: String,
     pub description: Option<String>,
     pub status: Option<String>,
+    pub estimated_hours: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +111,60 @@ pub struct UpdateDeliverableRequest {
     pub name: Option<String>,
     pub description: Option<String>,
     pub status: Option<String>,
+    pub estimated_hours: Option<f64>,
+}
+
+// --- Project Links ---
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ProjectLink {
+    pub id: String,
+    pub project_id: String,
+    pub link_type: String,
+    pub label: String,
+    pub url: String,
+    pub sort_order: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectLinkRequest {
+    pub link_type: String,
+    pub label: String,
+    pub url: String,
+    pub sort_order: Option<i64>,
+}
+
+// --- Project Emails ---
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ProjectEmail {
+    pub id: String,
+    pub project_id: String,
+    pub thread_id: String,
+    pub subject: String,
+    pub from_email: String,
+    pub snippet: Option<String>,
+    pub body_html: Option<String>,
+    pub received_at: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertEmailRequest {
+    pub thread_id: String,
+    pub subject: String,
+    pub from_email: String,
+    pub snippet: Option<String>,
+    pub body_html: Option<String>,
+    pub received_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SyncEmailsRequest {
+    pub emails: Vec<UpsertEmailRequest>,
 }
 
 // --- Messages ---

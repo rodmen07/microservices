@@ -1,7 +1,7 @@
 use std::env;
 
 use axum::{
-    routing::{get, patch},
+    routing::{delete, get, patch, post},
     Router,
 };
 use axum::http::Method;
@@ -10,7 +10,9 @@ use tower_http::{cors::{Any, CorsLayer}, trace::TraceLayer};
 use crate::app_state::AppState;
 use crate::handlers::{
     deliverables::{create_deliverable, delete_deliverable, list_deliverables, update_deliverable},
+    emails::{list_emails, sync_emails},
     health::health,
+    links::{create_link, delete_link, list_links},
     messages::{create_message, list_messages},
     milestones::{create_milestone, delete_milestone, list_milestones, update_milestone},
     projects::{create_project, delete_project, get_project, list_projects, update_project},
@@ -30,7 +32,7 @@ pub fn build_cors_layer() -> CorsLayer {
         .collect();
     CorsLayer::new()
         .allow_origin(allowed)
-        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::PUT, Method::OPTIONS])
         .allow_headers(Any)
 }
 
@@ -68,6 +70,21 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{project_id}/messages",
             get(list_messages).post(create_message),
+        )
+        // Links
+        .route(
+            "/api/v1/projects/{project_id}/links",
+            get(list_links).post(create_link),
+        )
+        .route("/api/v1/links/{id}", delete(delete_link))
+        // Emails
+        .route(
+            "/api/v1/projects/{project_id}/emails",
+            get(list_emails),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/emails/sync",
+            post(sync_emails),
         )
         .with_state(state)
         .layer(build_cors_layer())

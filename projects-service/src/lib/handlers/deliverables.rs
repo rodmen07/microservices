@@ -98,7 +98,7 @@ pub async fn list_deliverables(
     }
 
     let rows = sqlx::query_as::<_, Deliverable>(
-        "SELECT id, milestone_id, name, description, status, created_at, updated_at
+        "SELECT id, milestone_id, name, description, status, estimated_hours, created_at, updated_at
          FROM deliverables WHERE milestone_id = $1 ORDER BY created_at ASC",
     )
     .bind(&milestone_id)
@@ -172,14 +172,15 @@ pub async fn create_deliverable(
 
     sqlx::query(
         "INSERT INTO deliverables (id, milestone_id, name, description, status,
-                                    created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                                    estimated_hours, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(&id)
     .bind(&milestone_id)
     .bind(&name)
     .bind(&req.description)
     .bind(&status)
+    .bind(req.estimated_hours)
     .bind(&now)
     .bind(&now)
     .execute(&state.pool)
@@ -193,7 +194,7 @@ pub async fn create_deliverable(
     })?;
 
     let created = sqlx::query_as::<_, Deliverable>(
-        "SELECT id, milestone_id, name, description, status, created_at, updated_at
+        "SELECT id, milestone_id, name, description, status, estimated_hours, created_at, updated_at
          FROM deliverables WHERE id = $1",
     )
     .bind(&id)
@@ -220,7 +221,7 @@ pub async fn update_deliverable(
     require_admin(&claims)?;
 
     let existing = sqlx::query_as::<_, Deliverable>(
-        "SELECT id, milestone_id, name, description, status, created_at, updated_at
+        "SELECT id, milestone_id, name, description, status, estimated_hours, created_at, updated_at
          FROM deliverables WHERE id = $1",
     )
     .bind(&id)
@@ -266,15 +267,18 @@ pub async fn update_deliverable(
     };
 
     let description = req.description.or(existing.description);
+    let estimated_hours = req.estimated_hours.or(existing.estimated_hours);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
-        "UPDATE deliverables SET name = $1, description = $2, status = $3, updated_at = $4
-         WHERE id = $5",
+        "UPDATE deliverables SET name = $1, description = $2, status = $3,
+                estimated_hours = $4, updated_at = $5
+         WHERE id = $6",
     )
     .bind(&name)
     .bind(&description)
     .bind(&status)
+    .bind(estimated_hours)
     .bind(&now)
     .bind(&id)
     .execute(&state.pool)
@@ -288,7 +292,7 @@ pub async fn update_deliverable(
     })?;
 
     let updated = sqlx::query_as::<_, Deliverable>(
-        "SELECT id, milestone_id, name, description, status, created_at, updated_at
+        "SELECT id, milestone_id, name, description, status, estimated_hours, created_at, updated_at
          FROM deliverables WHERE id = $1",
     )
     .bind(&id)
