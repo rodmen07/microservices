@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -98,11 +99,15 @@ pub async fn create_message(
 
     let body = req.body.trim().to_string();
     if body.is_empty() {
-        return Err(error_response(
+        return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
-            "VALIDATION_ERROR",
-            "body is required",
-        ));
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "body is required".to_string(),
+                details: Some(json!({ "field": "body", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
 
     let author_role = if claims.has_role("admin") {
