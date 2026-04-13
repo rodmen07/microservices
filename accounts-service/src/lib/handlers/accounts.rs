@@ -221,11 +221,15 @@ pub async fn create_account(
 
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return error_response(
+        return (
             StatusCode::BAD_REQUEST,
-            "VALIDATION_ERROR",
-            "name is required",
-        );
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name is required".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
     }
 
     let status = body
@@ -241,7 +245,7 @@ pub async fn create_account(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid status value".to_string(),
-                details: Some(json!({ "valid_values": VALID_STATUSES })),
+                details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
             }),
         )
             .into_response();
@@ -362,11 +366,15 @@ pub async fn update_account(
 
     let name = match body.name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(
+            return (
                 StatusCode::BAD_REQUEST,
-                "VALIDATION_ERROR",
-                "name cannot be empty",
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "name cannot be empty".to_string(),
+                    details: Some(json!({ "field": "name", "constraint": "cannot be empty" })),
+                }),
             )
+                .into_response();
         }
         Some(n) => n.to_string(),
         None => existing.name.clone(),
@@ -392,7 +400,7 @@ pub async fn update_account(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "invalid status value".to_string(),
-                        details: Some(json!({ "valid_values": VALID_STATUSES })),
+                        details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
                     }),
                 )
                     .into_response();
