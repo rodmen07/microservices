@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::{validate_authorization_header, AuthClaims},
     models::{ApiError, CreateWorkflowRequest, UpdateWorkflowRequest, Workflow},
 };
 
@@ -24,10 +24,9 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -36,7 +35,8 @@ pub async fn list_workflows(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Workflow>>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let rows = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
@@ -53,6 +53,7 @@ pub async fn list_workflows(
         )
     })?;
 
+    tracing::debug!(actor = %actor, count = rows.len(), "list_workflows ok");
     Ok(Json(rows))
 }
 
@@ -62,14 +63,15 @@ pub async fn get_workflow(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Workflow>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let row = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -81,6 +83,7 @@ pub async fn get_workflow(
     })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "workflow not found"))?;
 
+    tracing::debug!(actor = %actor, workflow_id = %row.id, "get_workflow ok");
     Ok(Json(row))
 }
 
@@ -90,7 +93,8 @@ pub async fn create_workflow(
     State(state): State<AppState>,
     Json(req): Json<CreateWorkflowRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let name = req.name.trim().to_string();
     let trigger_event = req.trigger_event.trim().to_string();
@@ -126,7 +130,7 @@ pub async fn create_workflow(
                 created_at, updated_at
          FROM workflows WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -137,6 +141,7 @@ pub async fn create_workflow(
         )
     })?;
 
+    tracing::info!(actor = %actor, workflow_id = %created.id, "workflow created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -147,7 +152,8 @@ pub async fn update_workflow(
     State(state): State<AppState>,
     Json(req): Json<UpdateWorkflowRequest>,
 ) -> Result<Json<Workflow>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let existing = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
@@ -244,6 +250,7 @@ pub async fn update_workflow(
         )
     })?;
 
+    tracing::info!(actor = %actor, workflow_id = %updated.id, "workflow updated");
     Ok(Json(updated))
 }
 
@@ -253,10 +260,11 @@ pub async fn delete_workflow(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let result = sqlx::query("DELETE FROM workflows WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -274,6 +282,7 @@ pub async fn delete_workflow(
             "workflow not found",
         ));
     }
-
+    
+    tracing::info!(actor = %actor, workflow_id = %id, "workflow deleted");
     Ok(StatusCode::NO_CONTENT)
 }
