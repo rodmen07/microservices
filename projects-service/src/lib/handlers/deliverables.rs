@@ -112,6 +112,7 @@ pub async fn list_deliverables(
         )
     })?;
 
+    tracing::debug!(milestone_id = %milestone_id, actor = %claims.sub, count = rows.len(), "list_deliverables ok");
     Ok(Json(rows))
 }
 
@@ -208,6 +209,7 @@ pub async fn create_deliverable(
         )
     })?;
 
+    tracing::info!(deliverable_id = %id, milestone_id = %milestone_id, actor = %claims.sub, "deliverable created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -306,6 +308,7 @@ pub async fn update_deliverable(
         )
     })?;
 
+    tracing::info!(deliverable_id = %id, milestone_id = %existing.milestone_id, actor = %claims.sub, "deliverable updated");
     Ok(Json(updated))
 }
 
@@ -337,5 +340,6 @@ pub async fn delete_deliverable(
         ));
     }
 
+    tracing::info!(deliverable_id = %id, actor = %claims.sub, "deliverable deleted");
     Ok(StatusCode::NO_CONTENT)
 }
