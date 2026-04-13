@@ -104,17 +104,14 @@ pub async fn list_contacts(
     State(state): State<AppState>,
     Query(params): Query<ListContactsQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
-
-    let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
-    let offset = params.offset.unwrap_or(0) as i64;
-
     let claims = match require_auth(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
+
+    let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
+    let offset = params.offset.unwrap_or(0) as i64;
+
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let name_pattern = params.q.as_deref().map(|q| format!("%{}%", q));
@@ -215,6 +212,8 @@ pub async fn list_contacts(
         }
     };
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), ?params, "list_contacts ok");
+
     Json(ListContactsResponse {
         data: rows,
         total,
@@ -248,7 +247,10 @@ pub async fn get_contact(
     }
 
     match q.fetch_optional(&state.pool).await {
-        Ok(Some(contact)) => Json(contact).into_response(),
+        Ok(Some(contact)) => {
+            tracing::debug!(contact_id = %contact.id, actor = %claims.sub, "get_contact ok");
+            Json(contact).into_response()
+        },
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("get_contact db error: {e}");
@@ -366,7 +368,7 @@ pub async fn create_contact(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(e) => {
             tracing::error!("create_contact db error: {e}");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
@@ -374,7 +376,7 @@ pub async fn create_contact(
     }
 
     let contact = Contact {
-        id,
+        id, // id is moved here
         owner_id,
         account_id: account_id.map(str::to_string),
         first_name,
@@ -407,7 +409,9 @@ pub async fn create_contact(
 
     let label = format!("{} {}", contact.first_name, contact.last_name);
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "contact", &contact.id, "created", &contact.owner_id, Some(&label), &auth_hdr).await;
+    emit_audit(&state.http_client, "contact", &contact.id, "created", &claims.sub, Some(&label), &auth_hdr).await;
+
+    tracing::info!(contact_id = %contact.id, actor = %claims.sub, "contact created");
 
     (StatusCode::CREATED, Json(contact)).into_response()
 }
@@ -568,7 +572,7 @@ pub async fn update_contact(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {},
         Err(e) => {
             tracing::error!("update_contact db error: {e}");
             return error_response(
@@ -613,7 +617,9 @@ pub async fn update_contact(
 
     let label = format!("{} {}", updated.first_name, updated.last_name);
     let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "contact", &updated.id, "updated", &updated.owner_id, Some(&label), &auth_hdr).await;
+    emit_audit(&state.http_client, "contact", &updated.id, "updated", &claims.sub, Some(&label), &auth_hdr).await;
+
+    tracing::info!(contact_id = %updated.id, actor = %claims.sub, "contact updated");
 
     Json(updated).into_response()
 }
@@ -647,7 +653,11 @@ pub async fn delete_contact(
         Ok(result) if result.rows_affected() > 0 => {
             let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
             emit_audit(&state.http_client, "contact", &id, "deleted", &claims.sub, None, &auth_hdr).await;
+            
+            let contact_id_for_tracing = id.clone(); 
             crate::pipeline::delete_search_document(state.http_client.clone(), id);
+
+            tracing::info!(contact_id = %contact_id_for_tracing, actor = %claims.sub, "contact deleted");
             StatusCode::NO_CONTENT.into_response()
         }
         Ok(_) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
