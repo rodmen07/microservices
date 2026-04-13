@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::{validate_authorization_header, AuthClaims},
     models::{ApiError, IndexDocumentRequest, SearchDocument, SearchQuery, SearchResult},
 };
 
@@ -24,10 +24,9 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 }
 
 // Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
+fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|_| ())
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
@@ -37,10 +36,11 @@ pub async fn search_documents(
     Query(query): Query<SearchQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchResult>>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let term = query.q.trim().to_lowercase();
     if term.is_empty() {
+        tracing::debug!(actor = %claims.sub, term = %term, count = 0, "search_documents ok (empty term)");
         return Ok(Json(vec![]));
     }
 
@@ -55,7 +55,8 @@ pub async fn search_documents(
     .bind(&pattern)
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error searching documents");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -79,8 +80,9 @@ pub async fn search_documents(
                 snippet,
             }
         })
-        .collect();
+        .collect::<Vec<SearchResult>>();
 
+    tracing::debug!(actor = %claims.sub, term = %term, count = results.len(), "search_documents ok");
     Ok(Json(results))
 }
 
@@ -89,7 +91,7 @@ pub async fn list_documents(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchDocument>>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -97,7 +99,8 @@ pub async fn list_documents(
     )
     .fetch_all(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, "database error listing documents");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -105,6 +108,7 @@ pub async fn list_documents(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_documents ok");
     Ok(Json(rows))
 }
 
@@ -114,16 +118,17 @@ pub async fn get_document(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SearchDocument>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let row = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, document_id = %id, "database error getting document");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -132,6 +137,7 @@ pub async fn get_document(
     })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "document not found"))?;
 
+    tracing::debug!(actor = %claims.sub, document_id = %id, "get_document ok");
     Ok(Json(row))
 }
 
@@ -141,7 +147,7 @@ pub async fn index_document(
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -177,7 +183,10 @@ pub async fn index_document(
     .bind(&now)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|e| {
+        tracing::error!(error = %e, entity_id = %entity_id, "database error indexing document");
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+    })?;
 
     let upserted = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -186,7 +195,8 @@ pub async fn index_document(
     .bind(&entity_id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, entity_id = %entity_id, "database error fetching upserted document");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -194,6 +204,7 @@ pub async fn index_document(
         )
     })?;
 
+    tracing::info!(actor = %claims.sub, entity_type = %entity_type, entity_id = %entity_id, document_id = %upserted.id, "document indexed");
     Ok((StatusCode::CREATED, Json(upserted)).into_response())
 }
 
@@ -203,13 +214,14 @@ pub async fn delete_document_by_entity(
     Path(entity_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     sqlx::query("DELETE FROM search_documents WHERE entity_id = $1")
-        .bind(entity_id)
+        .bind(&entity_id)
         .execute(&state.pool)
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            tracing::error!(error = %e, entity_id = %entity_id, "database error deleting document by entity");
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
@@ -217,6 +229,7 @@ pub async fn delete_document_by_entity(
             )
         })?;
 
+    tracing::info!(actor = %claims.sub, entity_id = %entity_id, "document deleted by entity_id");
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -227,7 +240,7 @@ pub async fn update_document(
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Json<SearchDocument>, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -246,7 +259,8 @@ pub async fn update_document(
         .bind(&id)
         .fetch_optional(&state.pool)
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            tracing::error!(error = %e, document_id = %id, "database error checking for existing document");
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
@@ -276,7 +290,10 @@ pub async fn update_document(
     .bind(&id)
     .execute(&state.pool)
     .await
-    .map_err(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error"))?;
+    .map_err(|e| {
+        tracing::error!(error = %e, document_id = %id, "database error updating document");
+        error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error")
+    })?;
 
     let updated = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -285,7 +302,8 @@ pub async fn update_document(
     .bind(&id)
     .fetch_one(&state.pool)
     .await
-    .map_err(|_| {
+    .map_err(|e| {
+        tracing::error!(error = %e, document_id = %id, "database error fetching updated document");
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -293,6 +311,7 @@ pub async fn update_document(
         )
     })?;
 
+    tracing::info!(actor = %claims.sub, document_id = %id, "document updated");
     Ok(Json(updated))
 }
 
@@ -302,13 +321,14 @@ pub async fn delete_document(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = require_auth(&headers)?;
 
     let result = sqlx::query("DELETE FROM search_documents WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
-        .map_err(|_| {
+        .map_err(|e| {
+            tracing::error!(error = %e, document_id = %id, "database error deleting document");
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
@@ -324,5 +344,6 @@ pub async fn delete_document(
         ));
     }
 
+    tracing::info!(actor = %claims.sub, document_id = %id, "document deleted");
     Ok(StatusCode::NO_CONTENT)
 }
