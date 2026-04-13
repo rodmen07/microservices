@@ -464,6 +464,56 @@ async fn index_document_missing_fields_is_422() {
 }
 
 #[tokio::test]
+async fn index_document_malformed_json_is_400() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    "{{" // Malformed JSON
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn index_document_empty_entity_type_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "",
+                        "entity_id": "task-id",
+                        "title": "Title",
+                        "body": "some body"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "VALIDATION_ERROR");
+}
+
+#[tokio::test]
 async fn search_with_empty_q_returns_empty() {
     let app = test_app().await;
     let auth = make_jwt();
