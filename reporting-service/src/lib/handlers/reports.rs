@@ -79,6 +79,7 @@ pub async fn get_dashboard_summary(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, count = count, "get_dashboard_summary ok");
     Ok(Json(DashboardSummary {
         active_reports: count,
         core_metrics: metric_rows,
@@ -221,6 +222,7 @@ pub async fn get_dashboard(
     )
     .await?;
 
+    tracing::debug!(actor = %claims.sub, ?params, "get_dashboard ok");
     Ok(Json(DashboardView {
         accounts,
         contacts,
@@ -272,6 +274,7 @@ pub async fn list_reports(
         })?
     };
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_reports ok");
     Ok(Json(rows))
 }
 
@@ -325,6 +328,7 @@ pub async fn get_report(
         }
     }
 
+    tracing::debug!(actor = %claims.sub, report_id = %id, "get_report ok");
     Ok(Json(row))
 }
 
@@ -376,7 +380,7 @@ pub async fn create_report(
         "SELECT id, name, description, metric, dimension, created_at, updated_at
          FROM reports WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -387,6 +391,7 @@ pub async fn create_report(
         )
     })?;
 
+    tracing::info!(report_id = %created.id, actor = %claims.sub, "report created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -397,8 +402,6 @@ pub async fn update_report(
     State(state): State<AppState>,
     Json(req): Json<UpdateReportRequest>,
 ) -> Result<Json<SavedReport>, Response> {
-    require_auth(&headers)?;
-
     let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
@@ -519,6 +522,7 @@ pub async fn update_report(
         )
     })?;
 
+    tracing::info!(report_id = %id, actor = %claims.sub, "report updated");
     Ok(Json(updated))
 }
 
@@ -555,7 +559,7 @@ pub async fn delete_report(
     }
 
     let result = sqlx::query("DELETE FROM reports WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -574,6 +578,7 @@ pub async fn delete_report(
         ));
     }
 
+    tracing::info!(report_id = %id, actor = %claims.sub, "report deleted");
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -696,6 +701,7 @@ pub async fn export_reports(
             )
         })?;
 
+        tracing::debug!(actor = %claims.sub, count = rows.len(), format = %format, ?params, "export_reports ok");
         Ok((
             StatusCode::OK,
             [
@@ -720,6 +726,7 @@ pub async fn export_reports(
             )
         })?;
 
+        tracing::debug!(actor = %claims.sub, count = rows.len(), format = %format, ?params, "export_reports ok");
         Ok((
             StatusCode::OK,
             [
