@@ -279,18 +279,26 @@ pub async fn create_contact(
     let last_name = body.last_name.trim().to_string();
 
     if first_name.is_empty() {
-        return error_response(
+        return (
             StatusCode::BAD_REQUEST,
-            "VALIDATION_ERROR",
-            "first_name is required",
-        );
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "first_name is required".to_string(),
+                details: Some(json!({ "field": "first_name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
     }
     if last_name.is_empty() {
-        return error_response(
+        return (
             StatusCode::BAD_REQUEST,
-            "VALIDATION_ERROR",
-            "last_name is required",
-        );
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "last_name is required".to_string(),
+                details: Some(json!({ "field": "last_name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
     }
 
     let lifecycle_stage = body
@@ -306,7 +314,7 @@ pub async fn create_contact(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid lifecycle_stage value".to_string(),
-                details: Some(json!({ "valid_values": VALID_LIFECYCLE_STAGES })),
+                details: Some(json!({ "field": "lifecycle_stage", "valid_values": VALID_LIFECYCLE_STAGES })),
             }),
         )
             .into_response();
@@ -462,11 +470,15 @@ pub async fn update_contact(
 
     let first_name = match body.first_name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(
+            return (
                 StatusCode::BAD_REQUEST,
-                "VALIDATION_ERROR",
-                "first_name cannot be empty",
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "first_name cannot be empty".to_string(),
+                    details: Some(json!({ "field": "first_name", "constraint": "must not be empty" })),
+                }),
             )
+                .into_response();
         }
         Some(n) => n.to_string(),
         None => existing.first_name.clone(),
@@ -474,11 +486,15 @@ pub async fn update_contact(
 
     let last_name = match body.last_name.as_deref().map(str::trim) {
         Some("") => {
-            return error_response(
+            return (
                 StatusCode::BAD_REQUEST,
-                "VALIDATION_ERROR",
-                "last_name cannot be empty",
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "last_name cannot be empty".to_string(),
+                    details: Some(json!({ "field": "last_name", "constraint": "must not be empty" })),
+                }),
             )
+                .into_response();
         }
         Some(n) => n.to_string(),
         None => existing.last_name.clone(),
@@ -492,7 +508,7 @@ pub async fn update_contact(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "invalid lifecycle_stage value".to_string(),
-                        details: Some(json!({ "valid_values": VALID_LIFECYCLE_STAGES })),
+                        details: Some(json!({ "field": "lifecycle_stage", "valid_values": VALID_LIFECYCLE_STAGES })),
                     }),
                 )
                     .into_response();
