@@ -23,20 +23,13 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map(|_| ())
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Returns all integration connections ordered by creation date descending
 pub async fn list_connections(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<IntegrationConnection>>, Response> {
-    require_auth(&headers)?;
+    let claims = validate_authorization_header(headers.get("Authorization").and_then(|v| v.to_str().ok()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))?;
 
     let rows = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -52,6 +45,7 @@ pub async fn list_connections(
         )
     })?;
 
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_connections ok");
     Ok(Json(rows))
 }
 
@@ -61,13 +55,14 @@ pub async fn get_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    require_auth(&headers)?;
+    let claims = validate_authorization_header(headers.get("Authorization").and_then(|v| v.to_str().ok()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))?;
 
     let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -79,6 +74,7 @@ pub async fn get_connection(
     })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "connection not found"))?;
 
+    tracing::debug!(connection_id = %row.id, actor = %claims.sub, "get_connection ok");
     Ok(Json(row))
 }
 
@@ -88,7 +84,8 @@ pub async fn create_connection(
     State(state): State<AppState>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Response, Response> {
-    require_auth(&headers)?;
+    let claims = validate_authorization_header(headers.get("Authorization").and_then(|v| v.to_str().ok()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))?;
 
     let provider = req.provider.trim().to_string();
     let account_ref = req.account_ref.trim().to_string();
@@ -121,7 +118,7 @@ pub async fn create_connection(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
          FROM connections WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -132,6 +129,7 @@ pub async fn create_connection(
         )
     })?;
 
+    tracing::info!(connection_id = %created.id, actor = %claims.sub, "connection created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -142,7 +140,8 @@ pub async fn update_connection(
     State(state): State<AppState>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    require_auth(&headers)?;
+    let claims = validate_authorization_header(headers.get("Authorization").and_then(|v| v.to_str().ok()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))?;
 
     let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -215,6 +214,7 @@ pub async fn update_connection(
         )
     })?;
 
+    tracing::info!(connection_id = %updated.id, actor = %claims.sub, "connection updated");
     Ok(Json(updated))
 }
 
@@ -224,10 +224,11 @@ pub async fn delete_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    require_auth(&headers)?;
+    let claims = validate_authorization_header(headers.get("Authorization").and_then(|v| v.to_str().ok()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))?;
 
     let result = sqlx::query("DELETE FROM connections WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -246,5 +247,6 @@ pub async fn delete_connection(
         ));
     }
 
+    tracing::info!(connection_id = %id, actor = %claims.sub, "connection deleted");
     Ok(StatusCode::NO_CONTENT)
 }
