@@ -103,7 +103,9 @@ pub async fn ingest_audit_event(
     .execute(&state.pool)
     .await
     {
-        Ok(_) => {}
+        Ok(_) => {
+            tracing::info!(audit_event_id = %id, actor = %actor_id, "audit event ingested");
+        }
         Err(e) => {
             tracing::error!("ingest_audit_event db error: {e}");
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
@@ -259,6 +261,8 @@ pub async fn list_audit_events(
             return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
         }
     };
+
+    tracing::debug!(actor = %claims.sub, count = rows.len(), "list_audit_events ok");
 
     Json(ListAuditEventsResponse {
         data: rows,
