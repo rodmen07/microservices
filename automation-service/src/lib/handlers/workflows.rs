@@ -38,6 +38,11 @@ pub async fn list_workflows(
 ) -> Result<Json<Vec<Workflow>>, Response> {
     require_auth(&headers)?;
 
+    let claims_result = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| validate_authorization_header(Some(s)).ok());
+    let actor_id = claims_result.map(|c| c.sub).unwrap_or_else(|| "anonymous".to_string());
+
     let rows = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
@@ -53,6 +58,7 @@ pub async fn list_workflows(
         )
     })?;
 
+    tracing::debug!(actor = %actor_id, count = rows.len(), "list_workflows ok");
     Ok(Json(rows))
 }
 
@@ -64,12 +70,17 @@ pub async fn get_workflow(
 ) -> Result<Json<Workflow>, Response> {
     require_auth(&headers)?;
 
+    let claims_result = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| validate_authorization_header(Some(s)).ok());
+    let actor_id = claims_result.map(|c| c.sub).unwrap_or_else(|| "anonymous".to_string());
+
     let row = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
                 created_at, updated_at
          FROM workflows WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|_| {
@@ -81,6 +92,7 @@ pub async fn get_workflow(
     })?
     .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "workflow not found"))?;
 
+    tracing::debug!(actor = %actor_id, workflow_id = %id, "get_workflow ok");
     Ok(Json(row))
 }
 
@@ -91,6 +103,11 @@ pub async fn create_workflow(
     Json(req): Json<CreateWorkflowRequest>,
 ) -> Result<Response, Response> {
     require_auth(&headers)?;
+
+    let claims_result = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| validate_authorization_header(Some(s)).ok());
+    let actor_id = claims_result.map(|c| c.sub).unwrap_or_else(|| "anonymous".to_string());
 
     let name = req.name.trim().to_string();
     let trigger_event = req.trigger_event.trim().to_string();
@@ -126,7 +143,7 @@ pub async fn create_workflow(
                 created_at, updated_at
          FROM workflows WHERE id = $1",
     )
-    .bind(id)
+    .bind(&id)
     .fetch_one(&state.pool)
     .await
     .map_err(|_| {
@@ -137,6 +154,7 @@ pub async fn create_workflow(
         )
     })?;
 
+    tracing::info!(actor = %actor_id, workflow_id = %created.id, "workflow created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
 }
 
@@ -148,6 +166,11 @@ pub async fn update_workflow(
     Json(req): Json<UpdateWorkflowRequest>,
 ) -> Result<Json<Workflow>, Response> {
     require_auth(&headers)?;
+
+    let claims_result = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| validate_authorization_header(Some(s)).ok());
+    let actor_id = claims_result.map(|c| c.sub).unwrap_or_else(|| "anonymous".to_string());
 
     let existing = sqlx::query_as::<_, Workflow>(
         "SELECT id, name, trigger_event, action_type, enabled,
@@ -244,6 +267,7 @@ pub async fn update_workflow(
         )
     })?;
 
+    tracing::info!(actor = %actor_id, workflow_id = %id, "workflow updated");
     Ok(Json(updated))
 }
 
@@ -255,8 +279,13 @@ pub async fn delete_workflow(
 ) -> Result<StatusCode, Response> {
     require_auth(&headers)?;
 
+    let claims_result = headers.get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| validate_authorization_header(Some(s)).ok());
+    let actor_id = claims_result.map(|c| c.sub).unwrap_or_else(|| "anonymous".to_string());
+
     let result = sqlx::query("DELETE FROM workflows WHERE id = $1")
-        .bind(id)
+        .bind(&id)
         .execute(&state.pool)
         .await
         .map_err(|_| {
@@ -275,5 +304,6 @@ pub async fn delete_workflow(
         ));
     }
 
+    tracing::info!(actor = %actor_id, workflow_id = %id, "workflow deleted");
     Ok(StatusCode::NO_CONTENT)
 }
