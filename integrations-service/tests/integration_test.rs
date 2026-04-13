@@ -278,6 +278,47 @@ async fn create_connection_missing_provider_is_422() {
 }
 
 #[tokio::test]
+async fn create_connection_empty_account_ref_is_422() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/integrations/connections")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"provider": "some-provider", "account_ref": ""}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "VALIDATION_ERROR");
+}
+
+
+#[tokio::test]
+async fn get_connection_not_found_is_404() {
+    let app = test_app().await;
+    let auth = make_jwt();
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn update_connection_not_found_is_404() {
     let app = test_app().await;
     let auth = make_jwt();
@@ -357,7 +398,10 @@ async fn delete_connection_not_found_is_404() {
 #[tokio::test]
 async fn invalid_auth_token_is_401() {
     let app = test_app().await;
-    let resp = app
+
+    // Test on list endpoint
+    let resp_list = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/integrations/connections")
@@ -367,5 +411,60 @@ async fn invalid_auth_token_is_401() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(resp_list.status(), StatusCode::UNAUTHORIZED);
+
+    // Test on create endpoint
+    let resp_create = app.clone().oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/integrations/connections")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::from(
+                    json!({ "provider": "test", "account_ref": "test" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_create.status(), StatusCode::UNAUTHORIZED);
+
+    // Test on get endpoint
+    let resp_get = app.clone().oneshot(
+            Request::builder()
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_get.status(), StatusCode::UNAUTHORIZED);
+
+    // Test on update endpoint
+    let resp_update = app.clone().oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::from(json!({ "status": "connected" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_update.status(), StatusCode::UNAUTHORIZED);
+
+    // Test on delete endpoint
+    let resp_delete = app.oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, "Bearer garbage.token.here")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_delete.status(), StatusCode::UNAUTHORIZED);
 }
