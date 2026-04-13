@@ -61,12 +61,27 @@ async fn emit_audit(
         "entity_type": entity_type, "entity_id": entity_id,
         "action": action, "actor_id": actor_id, "entity_label": entity_label,
     });
-    let _ = client
+    match client
         .post(format!("{}/api/v1/audit-events", url.trim_end_matches('/')))
         .header("Authorization", auth_header)
         .json(&body)
         .send()
-        .await;
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => {}
+        Ok(resp) => tracing::warn!(
+            status = %resp.status(),
+            entity_type = %entity_type,
+            entity_id = %entity_id,
+            "audit emit returned non-success status"
+        ),
+        Err(e) => tracing::warn!(
+            error = %e,
+            entity_type = %entity_type,
+            entity_id = %entity_id,
+            "audit emit failed"
+        ),
+    }
 }
 
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
