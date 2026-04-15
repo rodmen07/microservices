@@ -632,7 +632,7 @@ pub async fn pull_aws_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
     let date_stamp = now.format("%Y%m%d").to_string();
 
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::{Digest, Sha256};
 
     fn hex(bytes: &[u8]) -> String {
