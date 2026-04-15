@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -102,18 +103,39 @@ pub async fn create_connection(
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "provider is required".to_string(),
-                details: Some(serde_json::json!({ "field": "provider", "constraint": "must not be empty" })),
+                message: "provider must not be empty".to_string(),
+                details: Some(json!({ "field": "provider", "constraint": "must not be empty" })),
             }),
         ).into_response());
     }
+    if provider.len() > 255 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "provider exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "provider", "constraint": "max 255 characters" })),
+            }),
+        ).into_response());
+    }
+
     if account_ref.is_empty() {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "account_ref is required".to_string(),
-                details: Some(serde_json::json!({ "field": "account_ref", "constraint": "must not be empty" })),
+                message: "account_ref must not be empty".to_string(),
+                details: Some(json!({ "field": "account_ref", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
+    }
+    if account_ref.len() > 255 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_ref exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "account_ref", "constraint": "max 255 characters" })),
             }),
         ).into_response());
     }
@@ -191,8 +213,18 @@ pub async fn update_connection(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
-                        message: "status cannot be empty".to_string(),
-                        details: Some(serde_json::json!({ "field": "status", "constraint": "must not be empty" })),
+                        message: "status must not be empty".to_string(),
+                        details: Some(json!({ "field": "status", "constraint": "must not be empty" })),
+                    }),
+                ).into_response());
+            }
+            if t.len() > 255 {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "status exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "status", "constraint": "max 255 characters" })),
                     }),
                 ).into_response());
             }
