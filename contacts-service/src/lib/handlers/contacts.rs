@@ -283,8 +283,19 @@ pub async fn create_contact(
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "first_name is required".to_string(),
+                message: "first_name must not be empty".to_string(),
                 details: Some(json!({ "field": "first_name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if first_name.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "first_name exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "first_name", "constraint": "max 255 characters" })),
             }),
         )
             .into_response();
@@ -294,8 +305,19 @@ pub async fn create_contact(
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "last_name is required".to_string(),
+                message: "last_name must not be empty".to_string(),
                 details: Some(json!({ "field": "last_name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if last_name.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "last_name exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "last_name", "constraint": "max 255 characters" })),
             }),
         )
             .into_response();
@@ -346,6 +368,19 @@ pub async fn create_contact(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    if let Some(ref e) = email {
+        if e.len() > 255 {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "email exceeds maximum length".to_string(),
+                    details: Some(json!({ "field": "email", "constraint": "max 255 characters" })),
+                }),
+            )
+                .into_response();
+        }
+    }
     let phone = body
         .phone
         .as_deref()
@@ -480,7 +515,20 @@ pub async fn update_contact(
             )
                 .into_response();
         }
-        Some(n) => n.to_string(),
+        Some(n) => {
+            if n.len() > 255 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "first_name exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "first_name", "constraint": "max 255 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            n.to_string()
+        },
         None => existing.first_name.clone(),
     };
 
@@ -496,7 +544,20 @@ pub async fn update_contact(
             )
                 .into_response();
         }
-        Some(n) => n.to_string(),
+        Some(n) => {
+            if n.len() > 255 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "last_name exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "last_name", "constraint": "max 255 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            n.to_string()
+        },
         None => existing.last_name.clone(),
     };
 
@@ -554,6 +615,17 @@ pub async fn update_contact(
             if t.is_empty() {
                 None
             } else {
+                if t.len() > 255 {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ApiError {
+                            code: "VALIDATION_ERROR".to_string(),
+                            message: "email exceeds maximum length".to_string(),
+                            details: Some(json!({ "field": "email", "constraint": "max 255 characters" })),
+                        }),
+                    )
+                        .into_response();
+                }
                 Some(t.to_string())
             }
         }
