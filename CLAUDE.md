@@ -280,11 +280,11 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | v1.2.3 | Portfolio observability — CRM events → Observaboard; admin service health dashboard | Published (2026-04-11) |
 | v1.2.4 | Service resilience — E2E test suite, load testing, chaos engineering runbook | Published (2026-04-11) |
 
-### v1.3 — Autonomous Operations
+### v1.3 — Autonomous Operations ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Implemented (2026-04-12) |
+| v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Published (2026-04-15) |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
