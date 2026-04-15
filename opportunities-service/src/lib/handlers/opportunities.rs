@@ -162,18 +162,40 @@ pub async fn create_opportunity(
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "name is required".to_string(),
+                message: "name must not be empty".to_string(),
                 details: Some(serde_json::json!({ "field": "name", "constraint": "must not be empty" })),
             }),
         ).into_response());
     }
-    if req.account_id.trim().is_empty() {
+    if name.len() > 255 {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "account_id is required".to_string(),
+                message: "name exceeds maximum length of 255 characters".to_string(),
+                details: Some(serde_json::json!({ "field": "name", "constraint": "max 255 characters" })),
+            }),
+        ).into_response());
+    }
+
+    let account_id = req.account_id.trim().to_string();
+    if account_id.is_empty() {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_id must not be empty".to_string(),
                 details: Some(serde_json::json!({ "field": "account_id", "constraint": "must not be empty" })),
+            }),
+        ).into_response());
+    }
+    if account_id.len() > 255 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "account_id exceeds maximum length of 255 characters".to_string(),
+                details: Some(serde_json::json!({ "field": "account_id", "constraint": "max 255 characters" })),
             }),
         ).into_response());
     }
@@ -196,7 +218,7 @@ pub async fn create_opportunity(
     )
     .bind(&id)
     .bind(&owner_id)
-    .bind(&req.account_id)
+    .bind(&account_id)
     .bind(&name)
     .bind(&stage)
     .bind(amount)
@@ -295,6 +317,16 @@ pub async fn update_opportunity(
                     }),
                 ).into_response());
             }
+            if t.len() > 255 {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name exceeds maximum length of 255 characters".to_string(),
+                        details: Some(serde_json::json!({ "field": "name", "constraint": "max 255 characters" })),
+                    }),
+                ).into_response());
+            }
             t
         }
         None => existing.name.clone(),
@@ -310,6 +342,16 @@ pub async fn update_opportunity(
                         code: "VALIDATION_ERROR".to_string(),
                         message: "stage cannot be empty".to_string(),
                         details: Some(serde_json::json!({ "field": "stage", "constraint": "must not be empty" })),
+                    }),
+                ).into_response());
+            }
+            if t.len() > 255 {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "stage exceeds maximum length of 255 characters".to_string(),
+                        details: Some(serde_json::json!({ "field": "stage", "constraint": "max 255 characters" })),
                     }),
                 ).into_response());
             }
