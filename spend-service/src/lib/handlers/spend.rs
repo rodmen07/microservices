@@ -180,66 +180,120 @@ pub async fn create_spend(
     };
 
     let platform = body.platform.trim().to_lowercase();
+    if platform.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "platform must not be empty".to_string(),
+                details: Some(json!({ "field": "platform", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if platform.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "platform exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "platform", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response();
+    }
     if !VALID_PLATFORMS.contains(&platform.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid platform".to_string(),
-                details: Some(json!({ "valid_values": VALID_PLATFORMS })),
+                details: Some(json!({ "field": "platform", "valid_values": VALID_PLATFORMS })),
             }),
         )
             .into_response();
     }
 
     if !validate_date(&body.date) {
-        return error_response(
+        return (
             StatusCode::BAD_REQUEST,
-            "VALIDATION_ERROR",
-            "date must be YYYY-MM-DD format",
-        );
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "date must be YYYY-MM-DD format".to_string(),
+                details: Some(json!({ "field": "date", "constraint": "YYYY-MM-DD format" })),
+            }),
+        )
+            .into_response();
     }
 
     if body.amount_usd < 0.0 {
-        return error_response(
+        return (
             StatusCode::BAD_REQUEST,
-            "VALIDATION_ERROR",
-            "amount_usd must be non-negative",
-        );
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "amount_usd must be non-negative".to_string(),
+                details: Some(json!({ "field": "amount_usd", "constraint": "must be non-negative" })),
+            }),
+        )
+            .into_response();
     }
 
-    let granularity = body
+    let granularity_trimmed = body
         .granularity
         .as_deref()
         .map(str::trim)
         .unwrap_or("daily")
         .to_string();
 
-    if !VALID_GRANULARITIES.contains(&granularity.as_str()) {
+    if !VALID_GRANULARITIES.contains(&granularity_trimmed.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid granularity".to_string(),
-                details: Some(json!({ "valid_values": VALID_GRANULARITIES })),
+                details: Some(json!({ "field": "granularity", "valid_values": VALID_GRANULARITIES })),
             }),
         )
             .into_response();
     }
 
-    let service_label = body
-        .service_label
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
+    let mut final_service_label: Option<String> = None;
+    if let Some(s_label) = &body.service_label {
+        let trimmed_s_label = s_label.trim();
+        if !trimmed_s_label.is_empty() {
+            if trimmed_s_label.len() > 255 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "service_label exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "service_label", "constraint": "max 255 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            final_service_label = Some(trimmed_s_label.to_string());
+        }
+    }
 
-    let notes = body
-        .notes
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
+    let mut final_notes: Option<String> = None;
+    if let Some(n_val) = &body.notes {
+        let trimmed_n_val = n_val.trim();
+        if !trimmed_n_val.is_empty() {
+            if trimmed_n_val.len() > 1000 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "notes exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "notes", "constraint": "max 1000 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            final_notes = Some(trimmed_n_val.to_string());
+        }
+    }
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -251,9 +305,9 @@ pub async fn create_spend(
     .bind(&platform)
     .bind(&body.date)
     .bind(body.amount_usd)
-    .bind(&granularity)
-    .bind(&service_label)
-    .bind(&notes)
+    .bind(&granularity_trimmed)
+    .bind(&final_service_label)
+    .bind(&final_notes)
     .bind(&now)
     .bind(&now)
     .execute(&state.pool)
@@ -273,10 +327,10 @@ pub async fn create_spend(
         platform,
         date: body.date,
         amount_usd: body.amount_usd,
-        granularity,
-        service_label,
+        granularity: granularity_trimmed,
+        service_label: final_service_label,
         source: "manual".to_string(),
-        notes,
+        notes: final_notes,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -319,66 +373,96 @@ pub async fn update_spend(
     }
 
     let platform = match body.platform.as_deref().map(str::trim) {
-        Some(p) => {
-            let p = p.to_lowercase();
-            if !VALID_PLATFORMS.contains(&p.as_str()) {
+        Some(p_val) => {
+            let p_lower = p_val.to_lowercase();
+            if p_lower.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "platform must not be empty".to_string(),
+                        details: Some(json!({ "field": "platform", "constraint": "must not be empty" })),
+                    }),
+                )
+                    .into_response();
+            }
+            if p_lower.len() > 255 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "platform exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "platform", "constraint": "max 255 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            if !VALID_PLATFORMS.contains(&p_lower.as_str()) {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "invalid platform".to_string(),
-                        details: Some(json!({ "valid_values": VALID_PLATFORMS })),
+                        details: Some(json!({ "field": "platform", "valid_values": VALID_PLATFORMS })),
                     }),
                 )
                     .into_response();
             }
-            p
+            p_lower
         }
         None => existing.platform.clone(),
     };
 
     let date = match body.date.as_deref() {
-        Some(d) => {
-            if !validate_date(d) {
-                return error_response(
+        Some(d_val) => {
+            if !validate_date(d_val) {
+                return (
                     StatusCode::BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "date must be YYYY-MM-DD format",
-                );
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "date must be YYYY-MM-DD format".to_string(),
+                        details: Some(json!({ "field": "date", "constraint": "YYYY-MM-DD format" })),
+                    }),
+                )
+                    .into_response();
             }
-            d.to_string()
+            d_val.to_string()
         }
         None => existing.date.clone(),
     };
 
     let amount_usd = match body.amount_usd {
-        Some(a) => {
-            if a < 0.0 {
-                return error_response(
+        Some(a_val) => {
+            if a_val < 0.0 {
+                return (
                     StatusCode::BAD_REQUEST,
-                    "VALIDATION_ERROR",
-                    "amount_usd must be non-negative",
-                );
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "amount_usd must be non-negative".to_string(),
+                        details: Some(json!({ "field": "amount_usd", "constraint": "must be non-negative" })),
+                    }),
+                )
+                    .into_response();
             }
-            a
+            a_val
         }
         None => existing.amount_usd,
     };
 
     let granularity = match body.granularity.as_deref().map(str::trim) {
-        Some(g) => {
-            if !VALID_GRANULARITIES.contains(&g) {
+        Some(g_val) => {
+            if !VALID_GRANULARITIES.contains(&g_val) {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "invalid granularity".to_string(),
-                        details: Some(json!({ "valid_values": VALID_GRANULARITIES })),
+                        details: Some(json!({ "field": "granularity", "valid_values": VALID_GRANULARITIES })),
                     }),
                 )
                     .into_response();
             }
-            g.to_string()
+            g_val.to_string()
         }
         None => existing.granularity.clone(),
     };
@@ -389,6 +473,17 @@ pub async fn update_spend(
             if trimmed.is_empty() {
                 None
             } else {
+                if trimmed.len() > 255 {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ApiError {
+                            code: "VALIDATION_ERROR".to_string(),
+                            message: "service_label exceeds maximum length".to_string(),
+                            details: Some(json!({ "field": "service_label", "constraint": "max 255 characters" })),
+                        }),
+                    )
+                        .into_response();
+                }
                 Some(trimmed.to_string())
             }
         }
@@ -401,6 +496,17 @@ pub async fn update_spend(
             if trimmed.is_empty() {
                 None
             } else {
+                if trimmed.len() > 1000 {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ApiError {
+                            code: "VALIDATION_ERROR".to_string(),
+                            message: "notes exceeds maximum length".to_string(),
+                            details: Some(json!({ "field": "notes", "constraint": "max 1000 characters" })),
+                        }),
+                    )
+                        .into_response();
+                }
                 Some(trimmed.to_string())
             }
         }
