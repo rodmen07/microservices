@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -13,11 +14,11 @@ use crate::{
     models::{ApiError, CreateProjectLinkRequest, Project, ProjectLink},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
+fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
-        details: None,
+        details,
     });
     (status, body).into_response()
 }
@@ -25,7 +26,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
 }
 
 fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
@@ -36,6 +37,7 @@ fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
             "admin role required",
+            None,
         ))
     }
 }
@@ -58,15 +60,17 @@ async fn require_project_access(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "project not found",
+            None,
         ));
     }
     Ok(())
@@ -92,6 +96,7 @@ pub async fn list_links(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -121,19 +126,63 @@ pub async fn create_link(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     let label = req.label.trim().to_string();
     let url = req.url.trim().to_string();
     let link_type = req.link_type.trim().to_string();
 
-    if label.is_empty() || url.is_empty() || link_type.is_empty() {
+    if link_type.is_empty() {
         return Err(error_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::BAD_REQUEST,
             "VALIDATION_ERROR",
-            "link_type, label, and url are required",
+            "link_type must not be empty",
+            Some(json!({ "field": "link_type", "constraint": "must not be empty" })),
+        ));
+    }
+    if link_type.len() > 255 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "link_type exceeds maximum length",
+            Some(json!({ "field": "link_type", "constraint": "max 255 characters" })),
+        ));
+    }
+
+    if label.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "label must not be empty",
+            Some(json!({ "field": "label", "constraint": "must not be empty" })),
+        ));
+    }
+    if label.len() > 255 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "label exceeds maximum length",
+            Some(json!({ "field": "label", "constraint": "max 255 characters" })),
+        ));
+    }
+
+    if url.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "url must not be empty",
+            Some(json!({ "field": "url", "constraint": "must not be empty" })),
+        ));
+    }
+    if url.len() > 2048 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "url exceeds maximum length",
+            Some(json!({ "field": "url", "constraint": "max 2048 characters" })),
         ));
     }
 
@@ -161,6 +210,7 @@ pub async fn create_link(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -176,6 +226,7 @@ pub async fn create_link(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -199,6 +250,7 @@ pub async fn delete_link(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
                 "database error",
+                None,
             )
         })?;
 
@@ -207,6 +259,7 @@ pub async fn delete_link(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "link not found",
+            None,
         ));
     }
 

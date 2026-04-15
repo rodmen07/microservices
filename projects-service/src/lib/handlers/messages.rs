@@ -14,11 +14,11 @@ use crate::{
     models::{ApiError, CreateMessageRequest, Message, Project},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
+fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
-        details: None,
+        details,
     });
     (status, body).into_response()
 }
@@ -26,7 +26,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
 }
 
 async fn require_project_access(
@@ -47,15 +47,17 @@ async fn require_project_access(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "project not found",
+            None,
         ));
     }
     Ok(())
@@ -81,6 +83,7 @@ pub async fn list_messages(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -99,15 +102,20 @@ pub async fn create_message(
 
     let body = req.body.trim().to_string();
     if body.is_empty() {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "body is required".to_string(),
-                details: Some(json!({ "field": "body", "constraint": "must not be empty" })),
-            }),
-        )
-            .into_response());
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "body must not be empty",
+            Some(json!({ "field": "body", "constraint": "must not be empty" })),
+        ));
+    }
+    if body.len() > 1000 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "body exceeds maximum length",
+            Some(json!({ "field": "body", "constraint": "max 1000 characters" })),
+        ));
     }
 
     let author_role = if claims.has_role("admin") {
@@ -136,6 +144,7 @@ pub async fn create_message(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -151,6 +160,7 @@ pub async fn create_message(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
