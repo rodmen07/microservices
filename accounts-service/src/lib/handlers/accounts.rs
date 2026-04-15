@@ -240,8 +240,19 @@ pub async fn create_account(
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "name is required".to_string(),
+                message: "name must not be empty".to_string(),
                 details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if name.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name exceeds maximum length".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
             }),
         )
             .into_response();
@@ -391,7 +402,20 @@ pub async fn update_account(
             )
                 .into_response();
         }
-        Some(n) => n.to_string(),
+        Some(n) => {
+            if n.len() > 255 {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name exceeds maximum length".to_string(),
+                        details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+                    }),
+                )
+                    .into_response();
+            }
+            n.to_string()
+        }
         None => existing.name.clone(),
     };
 
