@@ -14,11 +14,11 @@ use crate::{
     models::{ApiError, CreateProjectRequest, Project, UpdateProjectRequest},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
+fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
-        details: None,
+        details,
     });
     (status, body).into_response()
 }
@@ -26,7 +26,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
 }
 
 fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
@@ -37,6 +37,7 @@ fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
             "admin role required",
+            None,
         ))
     }
 }
@@ -72,6 +73,7 @@ pub async fn list_projects(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -99,15 +101,17 @@ pub async fn get_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     if claims.has_role("client") && row.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "project not found",
+            None,
         ));
     }
 
@@ -125,26 +129,49 @@ pub async fn create_project(
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "name is required".to_string(),
-                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
-            }),
-        )
-            .into_response());
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "name must not be empty",
+            Some(json!({ "field": "name", "constraint": "must not be empty" })),
+        ));
     }
-    if req.account_id.trim().is_empty() {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "account_id is required".to_string(),
-                details: Some(json!({ "field": "account_id", "constraint": "must not be empty" })),
-            }),
-        )
-            .into_response());
+    if name.len() > 255 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "name exceeds maximum length",
+            Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+        ));
+    }
+
+    let account_id = req.account_id.trim().to_string();
+    if account_id.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "account_id must not be empty",
+            Some(json!({ "field": "account_id", "constraint": "must not be empty" })),
+        ));
+    }
+    if account_id.len() > 255 {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "account_id exceeds maximum length",
+            Some(json!({ "field": "account_id", "constraint": "max 255 characters" })),
+        ));
+    }
+
+    if let Some(description) = &req.description {
+        if description.len() > 1000 {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "description exceeds maximum length",
+                Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
+            ));
+        }
     }
 
     let status = req
@@ -156,15 +183,12 @@ pub async fn create_project(
         .to_string();
 
     if !VALID_STATUSES.contains(&status.as_str()) {
-        return Err((
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "status must be one of: planning, active, on_hold, completed, cancelled".to_string(),
-                details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
-            }),
-        )
-            .into_response());
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "VALIDATION_ERROR",
+            "status must be one of: planning, active, on_hold, completed, cancelled",
+            Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+        ));
     }
 
     let id = Uuid::new_v4().to_string();
@@ -176,7 +200,7 @@ pub async fn create_project(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&id)
-    .bind(&req.account_id)
+    .bind(&account_id)
     .bind(&req.client_user_id)
     .bind(&name)
     .bind(&req.description)
@@ -192,6 +216,7 @@ pub async fn create_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -208,6 +233,7 @@ pub async fn create_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -254,23 +280,29 @@ pub async fn update_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     let name = match req.name {
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err((
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(ApiError {
-                        code: "VALIDATION_ERROR".to_string(),
-                        message: "name cannot be empty".to_string(),
-                        details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
-                    }),
-                )
-                    .into_response());
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "name must not be empty",
+                    Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                ));
+            }
+            if t.len() > 255 {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "name exceeds maximum length",
+                    Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+                ));
             }
             t
         }
@@ -281,22 +313,33 @@ pub async fn update_project(
         Some(v) => {
             let t = v.trim().to_string();
             if !VALID_STATUSES.contains(&t.as_str()) {
-                return Err((
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(ApiError {
-                        code: "VALIDATION_ERROR".to_string(),
-                        message: "status must be one of: planning, active, on_hold, completed, cancelled".to_string(),
-                        details: Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
-                    }),
-                )
-                    .into_response());
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "status must be one of: planning, active, on_hold, completed, cancelled",
+                    Some(json!({ "field": "status", "valid_values": VALID_STATUSES })),
+                ));
             }
             t
         }
         None => existing.status.clone(),
     };
 
-    let description = req.description.or(existing.description);
+    let description = match req.description {
+        Some(v) => {
+            if v.len() > 1000 {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "description exceeds maximum length",
+                    Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
+                ));
+            }
+            Some(v)
+        }
+        None => existing.description.clone(),
+    };
+
     let client_user_id = req.client_user_id.or(existing.client_user_id);
     let start_date = req
         .start_date
@@ -332,6 +375,7 @@ pub async fn update_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -348,6 +392,7 @@ pub async fn update_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -389,6 +434,7 @@ pub async fn delete_project(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
                 "database error",
+                None,
             )
         })?;
 
@@ -397,6 +443,7 @@ pub async fn delete_project(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "project not found",
+            None,
         ));
     }
 

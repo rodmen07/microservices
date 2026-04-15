@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
+use serde_json::json;
 
 use crate::{
     app_state::AppState,
@@ -13,11 +14,11 @@ use crate::{
     models::{ApiError, Project, ProjectEmail, SyncEmailsRequest},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
+fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
-        details: None,
+        details,
     });
     (status, body).into_response()
 }
@@ -25,7 +26,7 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
 fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
 }
 
 fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
@@ -36,6 +37,7 @@ fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
             "admin role required",
+            None,
         ))
     }
 }
@@ -58,15 +60,17 @@ async fn require_project_access(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
             "project not found",
+            None,
         ));
     }
     Ok(())
@@ -93,6 +97,7 @@ pub async fn list_emails(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?;
 
@@ -122,14 +127,92 @@ pub async fn sync_emails(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
             "database error",
+            None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found"))?;
+    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
 
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let mut upserted = 0usize;
 
     for email in &req.emails {
+        // Validate email fields
+        let thread_id = email.thread_id.trim();
+        if thread_id.is_empty() {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email thread_id must not be empty",
+                Some(json!({ "field": "thread_id", "constraint": "must not be empty" })),
+            ));
+        }
+        if thread_id.len() > 255 {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email thread_id exceeds maximum length",
+                Some(json!({ "field": "thread_id", "constraint": "max 255 characters" })),
+            ));
+        }
+
+        let subject = email.subject.trim();
+        if subject.is_empty() {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email subject must not be empty",
+                Some(json!({ "field": "subject", "constraint": "must not be empty" })),
+            ));
+        }
+        if subject.len() > 255 {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email subject exceeds maximum length",
+                Some(json!({ "field": "subject", "constraint": "max 255 characters" })),
+            ));
+        }
+
+        let from_email = email.from_email.trim();
+        if from_email.is_empty() {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email from_email must not be empty",
+                Some(json!({ "field": "from_email", "constraint": "must not be empty" })),
+            ));
+        }
+        if from_email.len() > 255 {
+            return Err(error_response(
+                StatusCode::BAD_REQUEST,
+                "VALIDATION_ERROR",
+                "email from_email exceeds maximum length",
+                Some(json!({ "field": "from_email", "constraint": "max 255 characters" })),
+            ));
+        }
+
+        if let Some(snippet) = &email.snippet {
+            if snippet.len() > 1000 {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "email snippet exceeds maximum length",
+                    Some(json!({ "field": "snippet", "constraint": "max 1000 characters" })),
+                ));
+            }
+        }
+
+        if let Some(body_html) = &email.body_html {
+            if body_html.len() > 10000 {
+                return Err(error_response(
+                    StatusCode::BAD_REQUEST,
+                    "VALIDATION_ERROR",
+                    "email body_html exceeds maximum length",
+                    Some(json!({ "field": "body_html", "constraint": "max 10000 characters" })),
+                ));
+            }
+        }
+
         let id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO project_emails
@@ -161,6 +244,7 @@ pub async fn sync_emails(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DB_ERROR",
                 "database error",
+                None,
             )
         })?;
         upserted += 1;
