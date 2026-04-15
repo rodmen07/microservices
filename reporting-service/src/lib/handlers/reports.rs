@@ -347,17 +347,51 @@ pub async fn create_report(
     if name.is_empty() {
         return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
             code: "VALIDATION_ERROR".to_string(),
-            message: "name is required".to_string(),
+            message: "name must not be empty".to_string(),
             details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+        })).into_response());
+    }
+    if name.len() > 255 {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "name exceeds maximum length of 255 characters".to_string(),
+            details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
         })).into_response());
     }
 
     if metric.is_empty() {
         return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
             code: "VALIDATION_ERROR".to_string(),
-            message: "metric is required".to_string(),
+            message: "metric must not be empty".to_string(),
             details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
         })).into_response());
+    }
+    if metric.len() > 255 {
+        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+            code: "VALIDATION_ERROR".to_string(),
+            message: "metric exceeds maximum length of 255 characters".to_string(),
+            details: Some(json!({ "field": "metric", "constraint": "max 255 characters" })),
+        })).into_response());
+    }
+
+    if let Some(ref description) = req.description {
+        if description.len() > 1000 {
+            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "description exceeds maximum length of 1000 characters".to_string(),
+                details: Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
+            })).into_response());
+        }
+    }
+
+    if let Some(ref dimension) = req.dimension {
+        if dimension.len() > 255 {
+            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "dimension exceeds maximum length of 255 characters".to_string(),
+                details: Some(json!({ "field": "dimension", "constraint": "max 255 characters" })),
+            })).into_response());
+        }
     }
 
     let id = Uuid::new_v4().to_string();
@@ -464,6 +498,13 @@ pub async fn update_report(
                     details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
                 })).into_response());
             }
+            if t.len() > 255 {
+                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "name exceeds maximum length of 255 characters".to_string(),
+                    details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+                })).into_response());
+            }
             t
         }
         None => existing.name.clone(),
@@ -479,23 +520,42 @@ pub async fn update_report(
                     details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
                 })).into_response());
             }
+            if t.len() > 255 {
+                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "metric exceeds maximum length of 255 characters".to_string(),
+                    details: Some(json!({ "field": "metric", "constraint": "max 255 characters" })),
+                })).into_response());
+            }
             t
         }
         None => existing.metric.clone(),
     };
 
-    let description = req
-        .description
-        .as_deref()
-        .map(str::trim)
-        .map(str::to_string)
-        .or(existing.description);
-    let dimension = req
-        .dimension
-        .as_deref()
-        .map(str::trim)
-        .map(str::to_string)
-        .or(existing.dimension);
+    let mut description_to_use = existing.description.clone();
+    if let Some(ref d) = req.description {
+        if d.len() > 1000 {
+            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "description exceeds maximum length of 1000 characters".to_string(),
+                details: Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
+            })).into_response());
+        }
+        description_to_use = Some(d.trim().to_string());
+    }
+
+    let mut dimension_to_use = existing.dimension.clone();
+    if let Some(ref d) = req.dimension {
+        if d.len() > 255 {
+            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "dimension exceeds maximum length of 255 characters".to_string(),
+                details: Some(json!({ "field": "dimension", "constraint": "max 255 characters" })),
+            })).into_response());
+        }
+        dimension_to_use = Some(d.trim().to_string());
+    }
+
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(
@@ -503,9 +563,9 @@ pub async fn update_report(
          WHERE id = $6",
     )
     .bind(&name)
-    .bind(description)
+    .bind(description_to_use)
     .bind(&metric)
-    .bind(dimension)
+    .bind(dimension_to_use)
     .bind(&now)
     .bind(&id)
     .execute(&state.pool)
