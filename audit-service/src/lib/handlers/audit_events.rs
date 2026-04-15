@@ -47,8 +47,31 @@ pub async fn ingest_audit_event(
         Err(resp) => return resp,
     };
 
-    let entity_type = body.entity_type.trim().to_lowercase();
-    if !VALID_ENTITY_TYPES.contains(&entity_type.as_str()) {
+    let entity_type = body.entity_type.trim().to_string();
+    if entity_type.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "entity_type must not be empty".to_string(),
+                details: Some(serde_json::json!({ "field": "entity_type", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if entity_type.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "entity_type exceeds maximum length".to_string(),
+                details: Some(serde_json::json!({ "field": "entity_type", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response();
+    }
+    let lower_entity_type = entity_type.to_lowercase();
+    if !VALID_ENTITY_TYPES.contains(&lower_entity_type.as_str()) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
@@ -60,8 +83,31 @@ pub async fn ingest_audit_event(
             .into_response();
     }
 
-    let action = body.action.trim().to_lowercase();
-    if !VALID_ACTIONS.contains(&action.as_str()) {
+    let action = body.action.trim().to_string();
+    if action.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "action must not be empty".to_string(),
+                details: Some(serde_json::json!({ "field": "action", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if action.len() > 255 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "action exceeds maximum length".to_string(),
+                details: Some(serde_json::json!({ "field": "action", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response();
+    }
+    let lower_action = action.to_lowercase();
+    if !VALID_ACTIONS.contains(&lower_action.as_str()) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(ApiError {
@@ -79,12 +125,24 @@ pub async fn ingest_audit_event(
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "entity_id is required".to_string(),
+                message: "entity_id must not be empty".to_string(),
                 details: Some(serde_json::json!({ "field": "entity_id", "constraint": "must not be empty" })),
             }),
         )
             .into_response();
     }
+    if entity_id.len() > 255 { // Assuming max length for IDs is 255
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "entity_id exceeds maximum length".to_string(),
+                details: Some(serde_json::json!({ "field": "entity_id", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response();
+    }
+
 
     let actor_id = body.actor_id.trim().to_string();
     if actor_id.is_empty() {
@@ -92,15 +150,42 @@ pub async fn ingest_audit_event(
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
-                message: "actor_id is required".to_string(),
+                message: "actor_id must not be empty".to_string(),
                 details: Some(serde_json::json!({ "field": "actor_id", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response();
+    }
+    if actor_id.len() > 255 { // Assuming max length for IDs is 255
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "actor_id exceeds maximum length".to_string(),
+                details: Some(serde_json::json!({ "field": "actor_id", "constraint": "max 255 characters" })),
             }),
         )
             .into_response();
     }
 
     let entity_label = body.entity_label.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    // Add length validation for entity_label if it's present
+    if let Some(label) = &entity_label {
+        if label.len() > 255 { // Assuming max length for labels is 255
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "entity_label exceeds maximum length".to_string(),
+                    details: Some(serde_json::json!({ "field": "entity_label", "constraint": "max 255 characters" })),
+                }),
+            )
+                .into_response();
+        }
+    }
+
     let payload = body.payload.as_ref().map(|v| v.to_string());
+    // No length validation for payload as it's a JSON string and could be large.
 
     let id = Uuid::new_v4().to_string();
     let created_at = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -110,9 +195,9 @@ pub async fn ingest_audit_event(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(&id)
-    .bind(&entity_type)
+    .bind(&lower_entity_type)
     .bind(&entity_id)
-    .bind(&action)
+    .bind(&lower_action)
     .bind(&actor_id)
     .bind(&entity_label)
     .bind(&payload)
@@ -131,9 +216,9 @@ pub async fn ingest_audit_event(
 
     let event = AuditEvent {
         id,
-        entity_type,
+        entity_type: lower_entity_type, // Use the lowercase, validated entity_type
         entity_id,
-        action,
+        action: lower_action, // Use the lowercase, validated action
         actor_id,
         entity_label,
         payload,
