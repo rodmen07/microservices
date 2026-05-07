@@ -315,6 +315,13 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
 | v1.8.0 | observaboard: stream_publisher.py fires classified events to event-stream-service via short-lived HS256 JWT (stdlib hmac, 2s timeout, all exceptions swallowed); IngestView.post wired with refresh_from_db + publish_to_stream guard; settings.py adds EVENT_STREAM_URL/EVENT_STREAM_JWT_SECRET; deploy-cloud-run.yml resolves event-stream URL + injects JWT secret; create_gateway_api_key bug fixed (create_key -> create, prefix -> pk); NotificationBell badge split fix (type.split('.')[0]) | Published (2026-05-07) |
+
+### v1.9 - Distributed Tracing & Observability - Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.9.0 | OpenTelemetry integration: W3C traceparent middleware in go-gateway; Cloud Trace exporter + graceful fallback in all 11 Rust services + ai-orchestrator (Python); event-stream-service traceparent extraction; rustls-webpki security upgrade (RUSTSEC-2026-0104) enforced via workspace.dependencies; end-to-end request tracing from gateway through all services visible in GCP Cloud Trace | Published (2026-05-07) |
+
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
