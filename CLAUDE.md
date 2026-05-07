@@ -303,6 +303,12 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
 | v1.6.0 | observaboard: Fly.io to Cloud Run (remove Celery/Redis, inline classification, port 8080, deploy-cloud-run.yml with migrate job); SOC 2 CC9.2 Terraform (vendor inventory labels, Cloud Run attestation, 5xx alert); portfolio polish (MicroservicesCaseStudyPage tech stack + baseline note) | Published (2026-05-08) |
+
+### v1.7 - CRM Event Pipeline - Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.7.0 | go-gateway: internal/observer package intercepts 2xx CRM mutations and fires fire-and-forget ingest events to observaboard; proxy.New() gains optional observer param; config gains ObservaboardURL/ObservaboardAPIKey; deploy workflow adds OBSERVABOARD_URL var + OBSERVABOARD_API_KEY secret; observaboard: create_gateway_api_key management command (idempotent, prints raw key once); infraportal: SOURCE_COLORS map for source-driven notification badge colors | Published (2026-05-07) |
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
