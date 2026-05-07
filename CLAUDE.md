@@ -286,11 +286,17 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 |-------------|---------|-----------------|
 | v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Published (2026-04-15) || v1.3.2 | Client Portal Dashboard — deliverable effort tracking (estimated_hours + burn-down), project links section (Figma/GitHub/Notion/Loom/custom), progress update feed, Gmail sync agent | Published (2026-05-06) |
 
-### v1.4 — Cloud Consolidation
+### v1.4 — Cloud Consolidation ✅ Complete
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
 | v1.4.0 | Fly.io to GCP Cloud Run migration (ai-orchestrator-service, event-stream-service); keyless OIDC; port normalisation; SHA-pinned images; Cloud Migration case study | Published (2026-05-07) |
+
+### v1.5 — DB Migration & Live Events ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.5.0 | backend-service: SQLite (Fly.io) to PostgreSQL (GCP Cloud Run + Cloud SQL); sqlx postgres, $N placeholders, RETURNING, BIGSERIAL/BOOLEAN/TIMESTAMPTZ migrations; CRM notification bell (SSE EventSource, auto-reconnect, unread badge, dropdown panel) | Published (2026-05-08) |
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
