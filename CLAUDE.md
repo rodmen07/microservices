@@ -290,7 +290,7 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
-| v1.4 | Fly.io → GCP Cloud Run migration (ai-orchestrator-service, event-stream-service); Cloud Migration case study | Planned |
+| v1.4.0 | Fly.io to GCP Cloud Run migration (ai-orchestrator-service, event-stream-service); keyless OIDC; port normalisation; SHA-pinned images; Cloud Migration case study | Published (2026-05-07) |
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
