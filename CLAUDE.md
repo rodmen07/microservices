@@ -297,6 +297,12 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
 | v1.5.0 | backend-service: SQLite (Fly.io) to PostgreSQL (GCP Cloud Run + Cloud SQL); sqlx postgres, $N placeholders, RETURNING, BIGSERIAL/BOOLEAN/TIMESTAMPTZ migrations; CRM notification bell (SSE EventSource, auto-reconnect, unread badge, dropdown panel) | Published (2026-05-08) |
+
+### v1.6 — Observability & Compliance ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.6.0 | observaboard: Fly.io to Cloud Run (remove Celery/Redis, inline classification, port 8080, deploy-cloud-run.yml with migrate job); SOC 2 CC9.2 Terraform (vendor inventory labels, Cloud Run attestation, 5xx alert); portfolio polish (MicroservicesCaseStudyPage tech stack + baseline note) | Published (2026-05-08) |
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
 
