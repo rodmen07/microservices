@@ -20,6 +20,11 @@ resolver = "2"
 [workspace.lints.clippy]
 result_large_err = "allow"
 
+# Shared dependency versions
+[workspace.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rustls-webpki = "0.103.13"  # Security fix: reachable panic in CRL parsing (RUSTSEC-2026-0104)
+
 [profile.release]
 lto = true
 codegen-units = 1
