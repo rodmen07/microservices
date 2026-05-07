@@ -28,11 +28,10 @@ jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["clock"] }
 reqwest.workspace = true
 rustls-webpki.workspace = true
-opentelemetry = { version = "0.23", features = ["trace", "metrics"] }
-opentelemetry-gcp = { version = "0.23" }
-opentelemetry-http = "0.12"
-opentelemetry-semantic-conventions = "0.15"
-tracing-opentelemetry = "0.24"
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-gcloud-trace.workspace = true
+tracing-opentelemetry.workspace = true
 hmac = "0.13"
 sha2 = "0.11"
 

@@ -1,6 +1,8 @@
 use std::{env, net::SocketAddr};
 
 use opportunities_service::{build_router, AppState};
+use opentelemetry::global;
+use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
 use tracing_subscriber::layer::SubscriberExt;
 
 #[tokio::main]
@@ -8,32 +10,27 @@ use tracing_subscriber::layer::SubscriberExt;
 // sets up the database, and starts the HTTP server.
 async fn main() {
     // Initialize OpenTelemetry tracer for Cloud Trace
-    let tracer = match opentelemetry_gcp::CloudTraceExporter::new()
-        .install_batch(opentelemetry::runtime::Tokio)
-    {
-        Ok(t) => Some(t),
-        Err(e) => {
-            eprintln!("Failed to initialize OpenTelemetry: {}", e);
-            None
+    if let Ok(exporter) = GcpCloudTraceExporterBuilder::for_default_project_id().await {
+        if let Ok(provider) = exporter.create_provider().await {
+            if let Ok(_tracer) = exporter.install(&provider).await {
+                global::set_tracer_provider(provider.clone());
+                let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| "opportunities_service=info,tower_http=info".into());
+                let subscriber = tracing_subscriber::fmt()
+                    .with_env_filter(env_filter)
+                    .finish();
+                tracing::subscriber::set_default(subscriber);
+            } else {
+                eprintln!("Failed to install OpenTelemetry tracer");
+                init_basic_tracing("opportunities_service");
+            }
+        } else {
+            eprintln!("Failed to create OpenTelemetry provider");
+            init_basic_tracing("opportunities_service");
         }
-    };
-
-    let tracing_layer = if let Some(t) = tracer {
-        Some(tracing_opentelemetry::layer().with_tracer(t))
     } else {
-        None
-    };
-
-    let subscriber = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "opportunities_service=info,tower_http=info".into()),
-        );
-
-    if let Some(layer) = tracing_layer {
-        tracing::subscriber::set_default(subscriber.with(layer).finish());
-    } else {
-        tracing::subscriber::set_default(subscriber.finish());
+        eprintln!("Failed to initialize OpenTelemetry");
+        init_basic_tracing("opportunities_service");
     }
 
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
@@ -68,4 +65,14 @@ async fn main() {
 
     println!("opportunities-service listening on http://{addr}");
     axum::serve(listener, app).await.expect("server failed");
+}
+
+fn init_basic_tracing(service_name: &str) {
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{service_name}=info,tower_http=info").into()),
+        )
+        .finish();
+    tracing::subscriber::set_default(subscriber);
 }
