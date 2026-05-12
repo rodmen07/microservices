@@ -10,7 +10,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -35,7 +35,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -134,7 +134,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -165,7 +165,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "rustls-webpki",
@@ -390,7 +390,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -1280,7 +1280,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -1686,6 +1686,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "pin-project-lite",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "opentelemetry-gcloud-trace"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1754,7 +1768,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -1950,7 +1964,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -2178,7 +2192,7 @@ dependencies = [
  "csv",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -2442,7 +2456,7 @@ dependencies = [
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
@@ -2675,7 +2689,7 @@ dependencies = [
  "hmac 0.13.0",
  "http-body-util",
  "jsonwebtoken 9.3.1",
- "opentelemetry 0.31.0",
+ "opentelemetry 0.32.0",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk 0.31.0",
  "reqwest 0.12.28",
