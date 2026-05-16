@@ -55,7 +55,7 @@ resource "google_cloud_run_v2_service" "rust_services" {
     service_account = google_service_account.cloud_run.email
 
     scaling {
-      min_instance_count = 0
+      min_instance_count = lookup(var.service_min_instances, each.key, 0)
       max_instance_count = 3
     }
 
@@ -147,7 +147,7 @@ resource "google_cloud_run_v2_service" "task_api" {
     service_account = google_service_account.cloud_run.email
 
     scaling {
-      min_instance_count = 0
+      min_instance_count = lookup(var.service_min_instances, "backend-service", 0)
       max_instance_count = 3
     }
 
