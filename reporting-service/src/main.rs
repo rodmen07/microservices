@@ -40,12 +40,13 @@ async fn main() {
         .unwrap_or(8080);
     let database_url =
         env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://reporting.db".to_string());
+    let replica_url = env::var("DATABASE_REPLICA_URL").ok();
 
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .expect("invalid HOST/PORT combination");
 
-    let state = match AppState::from_database_url(&database_url).await {
+    let state = match AppState::with_read_replica(&database_url, replica_url.as_deref()).await {
         Ok(state) => state,
         Err(err) => {
             eprintln!(

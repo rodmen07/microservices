@@ -53,10 +53,9 @@ pub async fn search_documents(
     )
     .bind(&pattern)
     .bind(&pattern)
-    .fetch_all(&state.pool)
+    .fetch_all(&state.read_pool)
     .await
-    .map_err(|e| {
-        tracing::error!(error = %e, "database error searching documents");
+    .map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -97,10 +96,9 @@ pub async fn list_documents(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
          FROM search_documents ORDER BY created_at DESC",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&state.read_pool)
     .await
-    .map_err(|e| {
-        tracing::error!(error = %e, "database error listing documents");
+    .map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
@@ -125,10 +123,9 @@ pub async fn get_document(
          FROM search_documents WHERE id = $1",
     )
     .bind(&id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&state.read_pool)
     .await
-    .map_err(|e| {
-        tracing::error!(error = %e, document_id = %id, "database error getting document");
+    .map_err(|_| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "DB_ERROR",
