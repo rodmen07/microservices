@@ -284,7 +284,8 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 | Sub-version | Feature | Completion State |
 |-------------|---------|-----------------|
-| v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Published (2026-04-15) || v1.3.2 | Client Portal Dashboard — deliverable effort tracking (estimated_hours + burn-down), project links section (Figma/GitHub/Notion/Loom/custom), progress update feed, Gmail sync agent | Published (2026-05-06) |
+| v1.3.1 | Productionizer agent — Gemini 2.5 Flash autonomous coding agent; daily GitHub Actions cron; PRs to microservices repo | Published (2026-04-15) |
+| v1.3.2 | Client Portal Dashboard — full-featured project tracking portal for clients; OAuth/email auth, milestones + deliverables, effort tracking (hours), project links, Gmail-synced emails, progress updates, messaging, GitHub build status | Published (2026-06-01) |
 
 ### v1.4 — Cloud Consolidation ✅ Complete
 
@@ -321,6 +322,75 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 | Sub-version | Feature | Completion State |
 |-------------|---------|------------------|
 | v1.9.0 | OpenTelemetry integration: W3C traceparent middleware in go-gateway; Cloud Trace exporter + graceful fallback in all 11 Rust services + ai-orchestrator (Python); event-stream-service traceparent extraction; rustls-webpki security upgrade (RUSTSEC-2026-0104) enforced via workspace.dependencies; end-to-end request tracing from gateway through all services visible in GCP Cloud Trace | Published (2026-05-07) |
+
+### v1.10 — Gateway Rate Limiting ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.10.0 | Per-client IP rate limiting with route-tier overrides (auth 5 rps, write 30 rps, read 60 rps); X-RateLimit-* response headers; configurable burst and idle eviction; 9 unit tests covering headers, 429 enforcement, client isolation, and X-Forwarded-For handling | Published (2026-05-16) |
+
+### v1.11 — Multi-Region HA & Event-Driven Batch ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.11.1 | Multi-region Cloud SQL setup: primary (us-central1) with read replica (us-east1); Cloud SQL Auth proxy for Kubernetes-style sidecar pattern; sqlx with replica routing hints | Published (2026-05-16) |
+| v1.11.2 | Batch mutation events from CRM services → Pub/Sub topic for downstream processing; audit-service publishes events; observaboard subscribes for classification and fan-out | Published (2026-05-16) |
+| v1.11.3 | Cloud Tasks async job queue for long-running workloads; Terraform module for queue provisioning; integration with ai-orchestrator for scheduled consulting reports | Published (2026-05-16) |
+
+### v1.12 — IaC Root Module, JWT Auth & CI/CD ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.12.1 | Terraform root module (terraform/envs/prod) for multi-service orchestration; environment-specific variables for region, project, service replicas, and secrets injection | Published (2026-05-16) |
+| v1.12.2 | JWT auth hardened: token rotation every 24h, refresh endpoint in auth-service, client-side refresh middleware in all services | Published (2026-05-16) |
+| v1.12.3 | CI/CD multi-stage: build runner image → test all services → push to Artifact Registry → deploy to Cloud Run with canary validation | Published (2026-05-16) |
+| v1.12.4 | Service resilience: integration tests for all 11 services, k6 load/spike/smoke scenarios, chaos engineering runbook (cold-start, connection exhaustion, fail-open paths) | Published (2026-05-16) |
+
+### v1.13 — Production Hardening, IaC Completeness & Observaboard Depth ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.13.1 | Cloud Armor DDoS protection for go-gateway; geo-restriction rules (US only by default); rate limiting at ingress layer | Published (2026-05-16) |
+| v1.13.2 | VPC Service Controls: private Cloud SQL, Cloud Run only accessible via Private Service Connection; egress filtering | Published (2026-05-16) |
+| v1.13.3 | Cloud SQL automatic backups with 30-day retention; point-in-time recovery testing and runbook | Published (2026-05-16) |
+| v1.13.4 | observaboard: Django signals for CRM event classification, severity scoring, and automated alerting on high-severity events | Published (2026-05-16) |
+| v1.13.5 | Observaboard webhooks: HTTP POST to external systems on new high-severity events; configurable retry and timeout | Published (2026-05-16) |
+| v1.13.6 | Cloud Logging sink: all service logs shipped to BigQuery for long-term analysis; saved queries for per-service error rates | Published (2026-05-16) |
+| v1.13.7 | Secret rotation: auth-service JWT secret rotates every 7 days; new versions staged before cutover; clients refresh on 401 | Published (2026-05-16) |
+| v1.13.8 | Terraform: Cloud KMS module for customer-managed encryption keys; Cloud SQL, Cloud Storage, and Secrets encrypted with project-owned keys | Published (2026-05-16) |
+| v1.13.9 | Cost optimization: committed-use discounts for Cloud Run and Cloud SQL; resource requests/limits tuned per workload via Terraform | Published (2026-05-16) |
+
+### v1.14 — Security Depth, Cost Efficiency & E2E Quality ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.14.1 | Cloud SQL proxy encryption in-transit: REQUIRE SSL enforced at database level; cert pinning in client connections | Published (2026-05-16) |
+| v1.14.2 | Service-to-service auth: internal Cloud Run services authenticate via service account impersonation and short-lived tokens | Published (2026-05-16) |
+| v1.14.3 | OAuth client secret rotation: GitHub + Google credentials cycled monthly via Terraform and Secret Manager | Published (2026-05-16) |
+| v1.14.4 | E2E test suite: Playwright flows for auth, portal, CRM admin, reports — all green before release | Published (2026-05-16) |
+| v1.14.5 | Infracost integration in deploy workflow: cost estimate posted to PRs; prevents surprise bill shocks from infrastructure changes | Published (2026-05-16) |
+| v1.14.6 | BigQuery daily aggregates: scheduled query for CRM mutation summaries (per-day, per-resource-type, per-method counts) | Published (2026-05-16) |
+| v1.14.7 | Compute cost analysis: per-service CPU and memory utilization tracked; rightsizing recommendations from GCP Console | Published (2026-05-16) |
+| v1.14.8 | Network cost optimization: Cloud CDN for static assets; Cloud Interconnect evaluated for hybrid setups | Published (2026-05-16) |
+| v1.14.9 | Terraform: saved cost analysis and commit-to-cost validation in CI; deployment blocked if delta > threshold | Published (2026-05-16) |
+| v1.14.10 | Budget alerts: GCP billing alerts configured in Terraform; email notification on 50%, 90%, 100% of monthly spend cap | Published (2026-05-16) |
+| v1.14.11 | Waste reduction: auto-deletion of old Cloud Run revisions after 30 days (retain only active); Cloud Storage lifecycle policies for old logs | Published (2026-05-16) |
+| v1.14.12 | v1.14 Patch Notes, README & Final Commit: documentation across all release locations | Published (2026-05-16) |
+
+### v1.15 — Deployment Safety, SLO Monitoring & Distributed State ✅ Complete
+
+| Sub-version | Feature | Completion State |
+|-------------|---------|------------------|
+| v1.15.1 | Cloud Run canary deployments: no-traffic revision → smoke test → 10/90 traffic split → full promotion; auto-rollback on failure | Published (2026-05-17) |
+| v1.15.2 | Smoke-test script (scripts/smoke-test.sh): validates /health payload and /health/upstreams reachability with configurable retries | Published (2026-05-17) |
+| v1.15.3 | Automated rollback composite action (.github/actions/cloud-run-rollback): reusable GitHub action for instant rollback on canary failure | Published (2026-05-17) |
+| v1.15.4 | SLO Terraform module (terraform/slos): availability SLO (99.9% target), latency SLO (< 2s p99); environment-configurable thresholds | Published (2026-05-17) |
+| v1.15.5 | SLO burn-rate alerts: fast-burn (high error budget consumption) and slow-burn (sustained degradation) alert policies in Cloud Monitoring | Published (2026-05-17) |
+| v1.15.6 | Per-service uptime checks: 60-second cadence, 3-minute sustained-failure detection window; alert policies per service | Published (2026-05-17) |
+| v1.15.7 | Redis Terraform module (terraform/memorystore): provision Memorystore Redis for gateway distributed state; optional Secret Manager integration | Published (2026-05-17) |
+| v1.15.8 | Redis-backed distributed rate limiting: INCR + EXPIRE fixed windows shared across all Cloud Run instances; fail-open on Redis unavailability | Published (2026-05-17) |
+| v1.15.9 | Gateway response cache: short-TTL in-process LRU for read endpoints; X-Cache MISS/HIT headers for visibility; per-user cache isolation | Published (2026-05-17) |
+| v1.15.10 | v1.15 Patch Notes, README & Final Commit: documentation wrap-up for deployment safety and SLO monitoring | Published (2026-05-17) |
 
 **Completion states:** Planned → Implemented → Published.
 Published means all Release Locations below have been updated.
