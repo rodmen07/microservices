@@ -1,16 +1,17 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
 use serde_json::json;
+use axum_jwt_auth::Claims;
 
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{ApiError, CreateMilestoneRequest, Milestone, Project, UpdateMilestoneRequest},
 };
 
@@ -23,11 +24,6 @@ fn error_response(status: StatusCode, code: &str, message: &str, details: Option
     (status, body).into_response()
 }
 
-fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
-}
 
 fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
     if claims.has_role("admin") {
@@ -79,11 +75,10 @@ async fn require_project_access(
 const VALID_STATUSES: &[&str] = &["pending", "in_progress", "completed"];
 
 pub async fn list_milestones(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(project_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Milestone>>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_project_access(&state.pool, &project_id, &claims).await?;
 
     let rows = sqlx::query_as::<_, Milestone>(
@@ -108,12 +103,11 @@ pub async fn list_milestones(
 }
 
 pub async fn create_milestone(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(project_id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<CreateMilestoneRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     // Verify project exists
@@ -234,12 +228,11 @@ pub async fn create_milestone(
 }
 
 pub async fn update_milestone(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateMilestoneRequest>,
 ) -> Result<Json<Milestone>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     let existing = sqlx::query_as::<_, Milestone>(
@@ -369,11 +362,10 @@ pub async fn update_milestone(
 }
 
 pub async fn delete_milestone(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     let result = sqlx::query("DELETE FROM milestones WHERE id = $1")

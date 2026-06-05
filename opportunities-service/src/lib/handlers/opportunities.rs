@@ -11,9 +11,11 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{ApiError, CreateOpportunityRequest, Opportunity, UpdateOpportunityRequest},
 };
+
+use axum_jwt_auth::Claims;
 
 // Fire-and-forget audit event emission; errors are silently ignored
 async fn emit_audit(
@@ -64,20 +66,12 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Returns all opportunities ordered by creation date descending
 pub async fn list_opportunities(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Opportunity>>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let (query, qs) = if is_admin {
@@ -116,11 +110,10 @@ pub async fn list_opportunities(
 
 // Fetches a single opportunity by ID, returning 404 if it does not exist
 pub async fn get_opportunity(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Opportunity>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
@@ -149,11 +142,11 @@ pub async fn get_opportunity(
 
 // Validates and inserts a new opportunity, returning the created record with HTTP 201
 pub async fn create_opportunity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Json(req): Json<CreateOpportunityRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
     let owner_id = claims.sub.clone();
 
     let name = req.name.trim().to_string();
@@ -271,12 +264,12 @@ pub async fn create_opportunity(
 
 // Applies partial updates to an existing opportunity, merging provided fields with stored values
 pub async fn update_opportunity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateOpportunityRequest>,
 ) -> Result<Json<Opportunity>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = {
@@ -424,11 +417,11 @@ pub async fn update_opportunity(
 
 // Deletes an opportunity by ID, returning 204 on success or 404 if not found
 pub async fn delete_opportunity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {

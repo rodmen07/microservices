@@ -8,8 +8,10 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{
         Account, ApiError, CreateAccountRequest, ListAccountsQuery, ListAccountsResponse,
         UpdateAccountRequest, VALID_STATUSES,
@@ -69,14 +71,6 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Checks whether a status string is one of the accepted account status values
 fn validate_status(status: &str) -> bool {
     VALID_STATUSES.contains(&status)
@@ -84,14 +78,11 @@ fn validate_status(status: &str) -> bool {
 
 // Lists accounts with optional status and name-search filters, returning a paginated response
 pub async fn list_accounts(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Query(params): Query<ListAccountsQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -188,14 +179,11 @@ pub async fn list_accounts(
 
 // Fetches a single account by ID, returning 404 if it does not exist
 pub async fn get_account(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
 
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
@@ -226,13 +214,11 @@ pub async fn get_account(
 
 // Validates and inserts a new account, returning the created record with HTTP 201
 pub async fn create_account(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Json(body): Json<CreateAccountRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
 
     let name = body.name.trim().to_string();
     if name.is_empty() {
@@ -283,11 +269,6 @@ pub async fn create_account(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
 
     let owner_id = claims.sub.clone();
     let id = Uuid::new_v4().to_string();
@@ -354,15 +335,12 @@ pub async fn create_account(
 
 // Applies partial updates to an existing account, merging provided fields with stored values
 pub async fn update_account(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
 
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
@@ -509,14 +487,11 @@ pub async fn update_account(
 
 // Deletes an account by ID, returning 204 on success or 404 if not found
 pub async fn delete_account(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {

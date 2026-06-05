@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -8,9 +8,11 @@ use chrono::Utc;
 use uuid::Uuid;
 use serde_json::json;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{ApiError, CreateConnectionRequest, IntegrationConnection, UpdateConnectionRequest},
 };
 
@@ -24,20 +26,12 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<String, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map(|claims| claims.sub)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Returns all integration connections ordered by creation date descending
 pub async fn list_connections(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<IntegrationConnection>>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let rows = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -60,11 +54,11 @@ pub async fn list_connections(
 
 // Fetches a single integration connection by ID, returning 404 if it does not exist
 pub async fn get_connection(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -89,11 +83,11 @@ pub async fn get_connection(
 
 // Validates and inserts a new integration connection with status "connected", returning the created record with HTTP 201
 pub async fn create_connection(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Response, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let provider = req.provider.trim().to_string();
     let account_ref = req.account_ref.trim().to_string();
@@ -181,12 +175,12 @@ pub async fn create_connection(
 
 // Updates the status and last_synced_at of an existing connection, merging with stored values
 pub async fn update_connection(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -281,11 +275,11 @@ pub async fn update_connection(
 
 // Deletes an integration connection by ID, returning 204 on success or 404 if not found
 pub async fn delete_connection(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = claims.sub;
 
     let result = sqlx::query("DELETE FROM connections WHERE id = $1")
         .bind(&id)

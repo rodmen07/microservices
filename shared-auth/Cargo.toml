@@ -1,0 +1,12 @@
+[package]
+name = "shared-auth"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+axum-jwt-auth.workspace = true
+jsonwebtoken = "10"
+serde = { version = "1", features = ["derive"] }

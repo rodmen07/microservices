@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -8,9 +8,11 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{ApiError, CreateWorkflowRequest, UpdateWorkflowRequest, Workflow},
 };
 
@@ -24,19 +26,11 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Returns all workflows ordered by creation date descending
 pub async fn list_workflows(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Workflow>>, Response> {
-    let claims = require_auth(&headers)?;
     let actor = claims.sub;
 
     let rows = sqlx::query_as::<_, Workflow>(
@@ -60,11 +54,10 @@ pub async fn list_workflows(
 
 // Fetches a single workflow by ID, returning 404 if it does not exist
 pub async fn get_workflow(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Workflow>, Response> {
-    let claims = require_auth(&headers)?;
     let actor = claims.sub;
 
     let row = sqlx::query_as::<_, Workflow>(
@@ -90,11 +83,10 @@ pub async fn get_workflow(
 
 // Validates and inserts a new workflow with enabled=true, returning the created record with HTTP 201
 pub async fn create_workflow(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(req): Json<CreateWorkflowRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
     let actor = claims.sub;
 
     let name = req.name.trim().to_string();
@@ -176,12 +168,11 @@ pub async fn create_workflow(
 
 // Applies partial updates to an existing workflow, merging provided fields with stored values
 pub async fn update_workflow(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateWorkflowRequest>,
 ) -> Result<Json<Workflow>, Response> {
-    let claims = require_auth(&headers)?;
     let actor = claims.sub;
 
     let existing = sqlx::query_as::<_, Workflow>(
@@ -297,11 +288,10 @@ pub async fn update_workflow(
 
 // Deletes a workflow by ID, returning 204 on success or 404 if not found
 pub async fn delete_workflow(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
     let actor = claims.sub;
 
     let result = sqlx::query("DELETE FROM workflows WHERE id = $1")

@@ -1,14 +1,16 @@
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{
         ApiError, AuditEvent, CreateAuditEventRequest, ListAuditEventsQuery,
         ListAuditEventsResponse, VALID_ACTIONS, VALID_ENTITY_TYPES,
@@ -29,23 +31,12 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-// Validates the Bearer token in the request headers, returning claims or an error response
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Ingests a new audit event; any valid JWT may call this (CRM services forward the caller's token)
 pub async fn ingest_audit_event(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(body): Json<CreateAuditEventRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let entity_type = body.entity_type.trim().to_string();
     if entity_type.is_empty() {
@@ -270,14 +261,10 @@ pub async fn ingest_audit_event(
 
 // Lists audit events with optional filters; admin role required
 pub async fn list_audit_events(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Query(params): Query<ListAuditEventsQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     if !claims.has_role("admin") {
         return error_response(StatusCode::FORBIDDEN, "FORBIDDEN", "admin role required");

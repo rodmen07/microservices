@@ -3,24 +3,75 @@ use axum::{
     http::{header, Request, StatusCode},
 };
 use http_body_util::BodyExt;
+use pg_embed::pg_enums::PgAuthMethod;
+use pg_embed::pg_fetch::{PgFetchSettings, PG_V17};
+use pg_embed::postgres::{PgEmbed, PgSettings};
 use serde_json::{json, Value};
+use serial_test::serial;
+use std::time::Duration;
+use tokio::sync::OnceCell;
 use tower::ServiceExt;
 
 use reporting_service::{build_router, AppState};
 use uuid::Uuid;
 
+static TEST_PG: OnceCell<PgEmbed> = OnceCell::const_new();
+static TEST_STATE: OnceCell<AppState> = OnceCell::const_new();
+
 /// Returns (app, unique_user_id) so each test has an isolated user namespace.
 async fn test_app() -> (axum::Router, String) {
-    // Ensure auth secret matches the test token signer.
-    std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
-
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/reports".to_string());
-    let state = AppState::from_database_url(&url)
+    let state = test_state().await;
+    state
+        .clear_reports_for_tests()
         .await
-        .expect("test DB failed");
+        .expect("failed to reset reports table");
     let user_id = Uuid::new_v4().to_string();
-    (build_router(state), user_id)
+    (build_router(state.clone()), user_id)
+}
+
+async fn test_state() -> &'static AppState {
+    TEST_STATE
+        .get_or_init(|| async {
+            std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
+            let url = test_database_url().await;
+            AppState::from_database_url(&url)
+                .await
+                .expect("test DB failed")
+        })
+        .await
+}
+
+async fn test_database_url() -> String {
+    let pg = TEST_PG
+        .get_or_init(|| async {
+            let database_dir = std::env::temp_dir().join(format!(
+                "reporting-service-pg-{}",
+                std::process::id()
+            ));
+            let settings = PgSettings {
+                database_dir,
+                port: 5432,
+                user: "postgres".to_string(),
+                password: "postgres".to_string(),
+                auth_method: PgAuthMethod::Plain,
+                persistent: true,
+                timeout: Some(Duration::from_secs(60)),
+                migration_dir: None,
+            };
+            let fetch_settings = PgFetchSettings {
+                version: PG_V17,
+                ..Default::default()
+            };
+            let mut pg = PgEmbed::new(settings, fetch_settings)
+                .await
+                .expect("failed to create embedded postgres");
+            pg.setup().await.expect("failed to setup embedded postgres");
+            pg.start_db().await.expect("failed to start embedded postgres");
+            pg
+        })
+        .await;
+
+    pg.full_db_uri("postgres")
 }
 
 fn make_jwt_for(sub: &str, roles: &[&str]) -> String {
@@ -58,6 +109,7 @@ async fn body_json(body: Body) -> Value {
 }
 
 #[tokio::test]
+#[serial]
 async fn health_returns_ok() {
     let (app, _) = test_app().await;
     let resp = app
@@ -73,6 +125,7 @@ async fn health_returns_ok() {
 }
 
 #[tokio::test]
+#[serial]
 async fn list_reports_requires_auth() {
     let (app, _) = test_app().await;
     let resp = app
@@ -88,6 +141,7 @@ async fn list_reports_requires_auth() {
 }
 
 #[tokio::test]
+#[serial]
 async fn dashboard_summary_requires_auth() {
     let (app, _) = test_app().await;
     let resp = app
@@ -103,6 +157,7 @@ async fn dashboard_summary_requires_auth() {
 }
 
 #[tokio::test]
+#[serial]
 async fn dashboard_view_endpoint_user_and_admin() {
     let (app, uid) = test_app().await;
     let user_auth = make_jwt(&uid);
@@ -162,6 +217,7 @@ async fn dashboard_view_endpoint_user_and_admin() {
 }
 
 #[tokio::test]
+#[serial]
 async fn create_report_and_check_dashboard() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -228,6 +284,7 @@ async fn create_report_and_check_dashboard() {
 }
 
 #[tokio::test]
+#[serial]
 async fn update_report() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -273,6 +330,7 @@ async fn update_report() {
 }
 
 #[tokio::test]
+#[serial]
 async fn get_report_found() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -315,6 +373,7 @@ async fn get_report_found() {
 }
 
 #[tokio::test]
+#[serial]
 async fn get_report_not_found_is_404() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -332,6 +391,7 @@ async fn get_report_not_found_is_404() {
 }
 
 #[tokio::test]
+#[serial]
 async fn list_reports_returns_array() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -369,6 +429,7 @@ async fn list_reports_returns_array() {
 }
 
 #[tokio::test]
+#[serial]
 async fn delete_report_returns_204() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -421,6 +482,7 @@ async fn delete_report_returns_204() {
 }
 
 #[tokio::test]
+#[serial]
 async fn delete_report_not_found_is_404() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -439,6 +501,7 @@ async fn delete_report_not_found_is_404() {
 }
 
 #[tokio::test]
+#[serial]
 async fn create_report_missing_required_fields_is_422() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -460,6 +523,7 @@ async fn create_report_missing_required_fields_is_422() {
 }
 
 #[tokio::test]
+#[serial]
 async fn update_report_not_found_is_404() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);
@@ -479,6 +543,7 @@ async fn update_report_not_found_is_404() {
 }
 
 #[tokio::test]
+#[serial]
 async fn invalid_auth_token_is_401() {
     let (app, _) = test_app().await;
     let resp = app
@@ -495,6 +560,7 @@ async fn invalid_auth_token_is_401() {
 }
 
 #[tokio::test]
+#[serial]
 async fn get_report_requires_auth_is_401() {
     let (app, _) = test_app().await;
     let resp = app
@@ -510,6 +576,7 @@ async fn get_report_requires_auth_is_401() {
 }
 
 #[tokio::test]
+#[serial]
 async fn update_report_requires_auth_is_401() {
     let (app, _) = test_app().await;
     let resp = app
@@ -527,6 +594,7 @@ async fn update_report_requires_auth_is_401() {
 }
 
 #[tokio::test]
+#[serial]
 async fn delete_report_requires_auth_is_401() {
     let (app, _) = test_app().await;
     let resp = app
@@ -543,6 +611,7 @@ async fn delete_report_requires_auth_is_401() {
 }
 
 #[tokio::test]
+#[serial]
 async fn create_report_invalid_json_is_400() {
     let (app, uid) = test_app().await;
     let auth = make_jwt(&uid);

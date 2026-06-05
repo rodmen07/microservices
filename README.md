@@ -13,6 +13,13 @@ This folder contains a multi-service ecosystem:
 
 The goal is to keep the platform easy to run locally while preserving stable cross-service contracts.
 
+## Recent updates (May 2026)
+
+- Added a new shared Rust crate, `shared-auth`, to centralize JWT decoder construction.
+- Migrated `reporting-service`, `search-service`, and `accounts-service` to use `shared-auth`.
+- Reporting integration tests now use an embedded PostgreSQL bootstrap path instead of assuming a local Postgres daemon.
+- `shared-auth` now treats `aud` as optional unless `AUTH_AUDIENCE` is configured.
+
 ## 1) System architecture
 
 ### High-level architecture diagram

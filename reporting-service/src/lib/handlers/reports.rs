@@ -8,9 +8,11 @@ use chrono::Utc;
 use uuid::Uuid;
 use serde_json::json; // Import json! macro
 
+use axum_jwt_auth::Claims;
+
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{
         ApiError, CreateReportRequest, DashboardSummary, DashboardView, ExportQuery, SavedReport,
         UpdateReportRequest,
@@ -27,19 +29,11 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Returns a summary of saved reports including the total count and distinct metrics in use
 pub async fn get_dashboard_summary(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<DashboardSummary>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let count = if is_admin {
@@ -133,11 +127,11 @@ async fn fetch_service_total(
 }
 
 pub async fn get_dashboard(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Result<Json<DashboardView>, Response> {
-    let claims = require_auth(&headers)?;
 
     // Determine if this is an admin or user request.
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
@@ -238,10 +232,9 @@ pub async fn get_dashboard(
 
 // Returns all saved reports ordered by creation date descending
 pub async fn list_reports(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SavedReport>>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let rows = if is_admin {
@@ -281,11 +274,10 @@ pub async fn list_reports(
 
 // Fetches a single saved report by ID, returning 404 if it does not exist
 pub async fn get_report(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SavedReport>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let row = sqlx::query_as::<_, SavedReport>(
@@ -335,12 +327,10 @@ pub async fn get_report(
 
 // Validates and inserts a new saved report, returning the created record with HTTP 201
 pub async fn create_report(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(req): Json<CreateReportRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
-
     let name = req.name.trim().to_string();
     let metric = req.metric.trim().to_string();
 
@@ -440,14 +430,11 @@ pub async fn create_report(
 
 // Applies partial updates to an existing saved report, merging provided fields with stored values
 pub async fn update_report(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateReportRequest>,
 ) -> Result<Json<SavedReport>, Response> {
-    require_auth(&headers)?;
-
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = sqlx::query_as::<_, SavedReport>(
@@ -599,11 +586,10 @@ pub async fn update_report(
 
 // Deletes a saved report by ID, returning 204 on success or 404 if not found
 pub async fn delete_report(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     if !is_admin {
@@ -655,11 +641,10 @@ pub async fn delete_report(
 
 // Exports reports as CSV or JSON with optional metric and date-range filters
 pub async fn export_reports(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Query(params): Query<ExportQuery>,
     State(state): State<AppState>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let format = params

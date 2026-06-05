@@ -1,15 +1,17 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{ApiError, IndexDocumentRequest, SearchDocument, SearchQuery, SearchResult},
 };
 
@@ -23,20 +25,12 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Searches indexed documents by a query term against title and body, returning truncated snippets
 pub async fn search_documents(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Query(query): Query<SearchQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchResult>>, Response> {
-    let claims = require_auth(&headers)?;
 
     let term = query.q.trim().to_lowercase();
     if term.is_empty() {
@@ -87,10 +81,9 @@ pub async fn search_documents(
 
 // Returns all indexed search documents ordered by creation date descending
 pub async fn list_documents(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchDocument>>, Response> {
-    let claims = require_auth(&headers)?;
 
     let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -112,11 +105,10 @@ pub async fn list_documents(
 
 // Fetches a single indexed document by ID, returning 404 if it does not exist
 pub async fn get_document(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SearchDocument>, Response> {
-    let claims = require_auth(&headers)?;
 
     let row = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -140,11 +132,10 @@ pub async fn get_document(
 
 // Upserts a search document by entity_id — inserts on first call, updates title/body on subsequent calls
 pub async fn index_document(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -207,11 +198,10 @@ pub async fn index_document(
 
 // Deletes a search document by the source entity's ID — idempotent, returns 204 whether or not it existed
 pub async fn delete_document_by_entity(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(entity_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
 
     sqlx::query("DELETE FROM search_documents WHERE entity_id = $1")
         .bind(&entity_id)
@@ -232,12 +222,11 @@ pub async fn delete_document_by_entity(
 
 // Replaces all fields of an existing search document with the provided values
 pub async fn update_document(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Json<SearchDocument>, Response> {
-    let claims = require_auth(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -314,11 +303,10 @@ pub async fn update_document(
 
 // Deletes an indexed document by ID, returning 204 on success or 404 if not found
 pub async fn delete_document(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
 
     let result = sqlx::query("DELETE FROM search_documents WHERE id = $1")
         .bind(&id)

@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -8,8 +8,10 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{
         ApiError, CreateSpendRequest, ListSpendQuery, ListSpendResponse, MonthTotal,
         PlatformTotal, SpendRecord, SpendSummary, SummaryQuery, UpdateSpendRequest,
@@ -30,25 +32,15 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 fn validate_date(date: &str) -> bool {
     chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
 }
 
 pub async fn list_spend(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Query(params): Query<ListSpendQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let limit = params.limit.unwrap_or(50).clamp(1, 200) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
@@ -141,14 +133,10 @@ pub async fn list_spend(
 }
 
 pub async fn get_spend(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -170,14 +158,10 @@ pub async fn get_spend(
 }
 
 pub async fn create_spend(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(body): Json<CreateSpendRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let platform = body.platform.trim().to_lowercase();
     if platform.is_empty() {
@@ -339,15 +323,11 @@ pub async fn create_spend(
 }
 
 pub async fn update_spend(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(body): Json<UpdateSpendRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -555,14 +535,10 @@ pub async fn update_spend(
 }
 
 pub async fn delete_spend(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let existing = match sqlx::query_as::<_, SpendRecord>(
         "SELECT id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at FROM spend_records WHERE id = $1",
@@ -604,14 +580,10 @@ pub async fn delete_spend(
 }
 
 pub async fn get_summary(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Query(params): Query<SummaryQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
 
     let mut where_clauses = Vec::new();
     let mut params_vec: Vec<String> = Vec::new();
@@ -697,11 +669,7 @@ pub async fn get_summary(
     .into_response()
 }
 
-pub async fn sync_gcp(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+pub async fn sync_gcp(Claims { claims, .. }: Claims<AuthClaims>, State(state): State<AppState>) -> Response {
 
     let result = crate::sync::pull_gcp_billing(&state.pool, &state.http_client).await;
     tracing::info!(
@@ -714,11 +682,7 @@ pub async fn sync_gcp(headers: HeaderMap, State(state): State<AppState>) -> Resp
     Json(result).into_response()
 }
 
-pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+pub async fn sync_flyio(Claims { claims, .. }: Claims<AuthClaims>, State(state): State<AppState>) -> Response {
 
     let result = crate::sync::pull_flyio_billing(&state.pool, &state.http_client).await;
     tracing::info!(
@@ -731,11 +695,7 @@ pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Re
     Json(result).into_response()
 }
 
-pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+pub async fn sync_github(Claims { claims, .. }: Claims<AuthClaims>, State(state): State<AppState>) -> Response {
 
     let result = crate::sync::pull_github_billing(&state.pool, &state.http_client).await;
     tracing::info!(
@@ -748,11 +708,7 @@ pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> R
     Json(result).into_response()
 }
 
-pub async fn sync_aws(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
+pub async fn sync_aws(Claims { claims, .. }: Claims<AuthClaims>, State(state): State<AppState>) -> Response {
 
     let result = crate::sync::pull_aws_billing(&state.pool, &state.http_client).await;
     tracing::info!(

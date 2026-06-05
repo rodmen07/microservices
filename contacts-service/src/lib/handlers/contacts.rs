@@ -10,8 +10,10 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{
         ApiError, Contact, CreateContactRequest, ListContactsQuery, ListContactsResponse,
         UpdateContactRequest, VALID_LIFECYCLE_STAGES,
@@ -56,14 +58,6 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 // Checks whether a lifecycle stage string is one of the accepted values
 fn validate_lifecycle_stage(stage: &str) -> bool {
     VALID_LIFECYCLE_STAGES.contains(&stage)
@@ -100,21 +94,13 @@ async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header:
 
 // Lists contacts with optional account, lifecycle stage, and name/email search filters, returning a paginated response
 pub async fn list_contacts(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Query(params): Query<ListContactsQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
-
     let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
     let offset = params.offset.unwrap_or(0) as i64;
 
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let name_pattern = params.q.as_deref().map(|q| format!("%{}%", q));
@@ -227,14 +213,10 @@ pub async fn list_contacts(
 
 // Fetches a single contact by ID, returning 404 if it does not exist
 pub async fn get_contact(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let query = if is_admin {
@@ -267,14 +249,11 @@ pub async fn get_contact(
 
 // Validates and inserts a new contact, optionally verifying the account_id against the accounts service
 pub async fn create_contact(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Json(body): Json<CreateContactRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
-
     let first_name = body.first_name.trim().to_string();
     let last_name = body.last_name.trim().to_string();
 
@@ -387,10 +366,6 @@ pub async fn create_contact(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let owner_id = claims.sub.clone();
 
     let id = Uuid::new_v4().to_string();
@@ -462,15 +437,12 @@ pub async fn create_contact(
 
 // Applies partial updates to an existing contact, with optional account re-validation
 pub async fn update_contact(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(body): Json<UpdateContactRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = {
@@ -714,14 +686,11 @@ pub async fn update_contact(
 
 // Deletes a contact by ID, returning 204 on success or 404 if not found
 pub async fn delete_contact(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let deletion = if is_admin {

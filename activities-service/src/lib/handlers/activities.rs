@@ -11,9 +11,11 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::AuthClaims,
     models::{Activity, ApiError, CreateActivityRequest, UpdateActivityRequest},
 };
+
+use axum_jwt_auth::Claims;
 
 async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header: &str) -> bool {
     let base_url = match env::var("ACCOUNTS_SERVICE_URL") {
@@ -96,17 +98,10 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
         .into_response()
 }
 
-fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
-}
-
 pub async fn list_activities(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Activity>>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
@@ -128,11 +123,10 @@ pub async fn list_activities(
 }
 
 pub async fn get_activity(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Activity>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
@@ -165,11 +159,11 @@ pub async fn get_activity(
 }
 
 pub async fn create_activity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Json(req): Json<CreateActivityRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
     let owner_id = claims.sub.clone();
 
     let activity_type = req.activity_type.trim().to_string();
@@ -294,12 +288,12 @@ pub async fn create_activity(
 }
 
 pub async fn update_activity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateActivityRequest>,
 ) -> Result<Json<Activity>, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = {
@@ -446,11 +440,11 @@ pub async fn update_activity(
 }
 
 pub async fn delete_activity(
+    Claims { claims, .. }: Claims<AuthClaims>,
     headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {

@@ -8,7 +8,7 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<serde_js
     match sqlx::query("SELECT 1").execute(&state.pool).await {
         Ok(_) => (
             StatusCode::OK,
-            Json(serde_json::json!(HealthResponse { status: "ok" })),
+            Json(serde_json::json!(HealthResponse::ok())),
         ),
         Err(e) => {
             tracing::error!(error = %e, "health check db ping failed");

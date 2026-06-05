@@ -1,16 +1,17 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use chrono::Utc;
 use uuid::Uuid;
 use serde_json::json;
+use axum_jwt_auth::Claims;
 
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{ApiError, CreateMessageRequest, Message, Project},
 };
 
@@ -23,11 +24,6 @@ fn error_response(status: StatusCode, code: &str, message: &str, details: Option
     (status, body).into_response()
 }
 
-fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
-}
 
 async fn require_project_access(
     pool: &sqlx::PgPool,
@@ -64,11 +60,10 @@ async fn require_project_access(
 }
 
 pub async fn list_messages(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(project_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Message>>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_project_access(&state.pool, &project_id, &claims).await?;
 
     let rows = sqlx::query_as::<_, Message>(
@@ -92,12 +87,11 @@ pub async fn list_messages(
 }
 
 pub async fn create_message(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(project_id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<CreateMessageRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_project_access(&state.pool, &project_id, &claims).await?;
 
     let body = req.body.trim().to_string();

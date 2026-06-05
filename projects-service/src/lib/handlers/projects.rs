@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
@@ -8,9 +8,11 @@ use chrono::Utc;
 use uuid::Uuid;
 use serde_json::json;
 
+use axum_jwt_auth::Claims;
+
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::AuthClaims,
     models::{ApiError, CreateProjectRequest, Project, UpdateProjectRequest},
 };
 
@@ -21,12 +23,6 @@ fn error_response(status: StatusCode, code: &str, message: &str, details: Option
         details,
     });
     (status, body).into_response()
-}
-
-fn require_auth_with_claims(headers: &HeaderMap) -> Result<AuthClaims, Response> {
-    let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
-    validate_authorization_header(header_value)
-        .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message(), None))
 }
 
 fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
@@ -45,10 +41,9 @@ fn require_admin(claims: &AuthClaims) -> Result<(), Response> {
 const VALID_STATUSES: &[&str] = &["planning", "active", "on_hold", "completed", "cancelled"];
 
 pub async fn list_projects(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Project>>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
 
     let rows = if claims.has_role("client") {
         sqlx::query_as::<_, Project>(
@@ -82,11 +77,10 @@ pub async fn list_projects(
 }
 
 pub async fn get_project(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Project>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
 
     let row = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
@@ -120,11 +114,10 @@ pub async fn get_project(
 }
 
 pub async fn create_project(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     State(state): State<AppState>,
     Json(req): Json<CreateProjectRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     let name = req.name.trim().to_string();
@@ -259,12 +252,11 @@ pub async fn create_project(
 }
 
 pub async fn update_project(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
     Json(req): Json<UpdateProjectRequest>,
 ) -> Result<Json<Project>, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     let existing = sqlx::query_as::<_, Project>(
@@ -418,11 +410,10 @@ pub async fn update_project(
 }
 
 pub async fn delete_project(
-    headers: HeaderMap,
+    Claims { claims, .. }: Claims<AuthClaims>,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth_with_claims(&headers)?;
     require_admin(&claims)?;
 
     let result = sqlx::query("DELETE FROM projects WHERE id = $1")
