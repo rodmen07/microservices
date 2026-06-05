@@ -79,7 +79,7 @@ fn validate_status(status: &str) -> bool {
 // Lists accounts with optional status and name-search filters, returning a paginated response
 pub async fn list_accounts(
     Claims { claims, .. }: Claims<AuthClaims>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     State(state): State<AppState>,
     Query(params): Query<ListAccountsQuery>,
 ) -> Response {
@@ -180,7 +180,7 @@ pub async fn list_accounts(
 // Fetches a single account by ID, returning 404 if it does not exist
 pub async fn get_account(
     Claims { claims, .. }: Claims<AuthClaims>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
