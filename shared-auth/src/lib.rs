@@ -25,7 +25,6 @@ where
 
     let mut validation = Validation::new(algorithm);
     validation.validate_exp = true;
-    validation.validate_aud = false;
     validation.required_spec_claims.remove("aud");
     if let Ok(issuer) = std::env::var("AUTH_ISSUER") {
         validation.set_issuer(&[issuer]);
@@ -33,6 +32,13 @@ where
     if let Ok(audience) = std::env::var("AUTH_AUDIENCE") {
         validation.set_audience(&[audience]);
         validation.validate_aud = true;
+    } else {
+        // axum_jwt_auth's LocalDecoder rejects a Validation with no audience configured
+        // (see axum-jwt-auth local.rs: `if validation.aud.is_none()`), even when audience
+        // validation is disabled. Provide a placeholder and keep validate_aud = false so
+        // the `aud` claim is never actually enforced.
+        validation.set_audience(&["unused"]);
+        validation.validate_aud = false;
     }
 
     Arc::new(
