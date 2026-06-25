@@ -90,6 +90,25 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo test -p audit-service
 
+      - name: Install cargo-tarpaulin (coverage)
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Generate code coverage
+        env:
+          AUTH_JWT_SECRET: dev-insecure-secret-change-me
+          ALLOWED_ORIGINS: http://localhost:5173
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/accounts
+        run: cargo tarpaulin --out Xml --exclude-files tests/ --exclude-files target/
+        continue-on-error: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./cobertura.xml
+          flags: rust
+          name: microservices-coverage
+        continue-on-error: true
+
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
     name: Security audit
