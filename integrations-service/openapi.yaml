@@ -1,0 +1,719 @@
+openapi: 3.0.3
+info:
+  title: integrations-service API
+  version: 1.16.1
+  description: |
+    Third-party integration connections service for the InfraPortal platform.
+    Rust (axum 0.8) with PostgreSQL persistence. Provides CRUD operations on
+    integration connection records (provider, account reference, sync status)
+    plus health and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role. Requests without a valid token
+    receive 401; valid tokens without the admin role receive 403 with body
+    {"code": "FORBIDDEN", "message": "admin role required"}. /health and /ready
+    are unauthenticated.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Framework-generated rejections (malformed
+    JSON, JSON body that fails deserialization) are produced by the axum Json
+    extractor before the handler runs and have text/plain bodies; because auth
+    is checked inside the handler, these body rejections take precedence over
+    401/403. They are documented per operation below.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://integrations-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:8080"
+    description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Connections
+    description: "Integration connection CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/integrations/connections:
+    get:
+      tags:
+        - Connections
+      summary: List connections
+      description: |
+        Returns every integration connection ordered by created_at descending.
+        The response is a bare JSON array: there is no pagination envelope and
+        the handler accepts no query parameters (unknown query strings are
+        ignored). Requires the admin role. Read tier: 60 rps at the gateway.
+      operationId: listConnections
+      responses:
+        "200":
+          description: All connections, newest first.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IntegrationConnection"
+              example:
+                - id: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+                  provider: salesforce
+                  account_ref: "acct-0042"
+                  status: connected
+                  last_synced_at: "2026-07-18T12:00:00Z"
+                  created_at: "2026-07-18T09:30:00Z"
+                  updated_at: "2026-07-18T12:00:00Z"
+                - id: "4b8d2f6a-1c3e-4d5b-9a7c-8e0f2b4d6a1c"
+                  provider: hubspot
+                  account_ref: "portal-98765"
+                  status: error
+                  last_synced_at: null
+                  created_at: "2026-07-01T08:15:00Z"
+                  updated_at: "2026-07-10T11:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Connections
+      summary: Create a connection
+      description: |
+        Creates an integration connection. provider and account_ref are
+        trimmed server-side and must be non-empty and at most 255 characters
+        after trimming; violations return 422 with the ApiError envelope and
+        code VALIDATION_ERROR. status is always initialized to "connected" and
+        last_synced_at to null; neither can be supplied at creation (unknown
+        JSON fields are ignored). The created row is re-read and returned with
+        201. Write tier: 30 rps at the gateway.
+      operationId: createConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectionRequest"
+            example:
+              provider: salesforce
+              account_ref: "acct-0042"
+      responses:
+        "201":
+          description: Connection created.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationConnection"
+              example:
+                id: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+                provider: salesforce
+                account_ref: "acct-0042"
+                status: connected
+                last_synced_at: null
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequestMalformedJson"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: |
+            Two producers share this status. Handler validation failures
+            return the ApiError envelope with code VALIDATION_ERROR. A JSON
+            body that parses but fails deserialization into the request type
+            (missing required field, wrong type) is rejected by the axum Json
+            extractor before the handler runs and has a text/plain body; in
+            that case the extractor rejection also precedes the auth check.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyProvider:
+                  summary: Provider empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "provider must not be empty"
+                    details:
+                      field: provider
+                      constraint: "must not be empty"
+                providerTooLong:
+                  summary: Provider longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "provider exceeds maximum length"
+                    details:
+                      field: provider
+                      constraint: "max 255 characters"
+                emptyAccountRef:
+                  summary: account_ref empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "account_ref must not be empty"
+                    details:
+                      field: account_ref
+                      constraint: "must not be empty"
+                accountRefTooLong:
+                  summary: account_ref longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "account_ref exceeds maximum length"
+                    details:
+                      field: account_ref
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: missing field `provider` at line 1 column 2"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/integrations/connections/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Connection ID (UUID v4, stored as TEXT)."
+        schema:
+          type: string
+          format: uuid
+        example: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+    get:
+      tags:
+        - Connections
+      summary: Get a connection
+      description: |
+        Fetches a single connection by ID. Returns 404 when no connection with
+        that ID exists. Read tier: 60 rps at the gateway.
+      operationId: getConnection
+      responses:
+        "200":
+          description: The requested connection.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationConnection"
+              example:
+                id: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+                provider: salesforce
+                account_ref: "acct-0042"
+                status: connected
+                last_synced_at: "2026-07-18T12:00:00Z"
+                created_at: "2026-07-18T09:30:00Z"
+                updated_at: "2026-07-18T12:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Connections
+      summary: Update a connection
+      description: |
+        Partial update of status and last_synced_at. provider and account_ref
+        are immutable. The existing row is fetched first, so an unknown ID
+        returns 404 before any validation runs. status, when provided, is
+        trimmed and must be non-empty and at most 255 characters; it is a
+        free-form string, not an enum. last_synced_at, when provided, is
+        trimmed and stored verbatim: the handler does not validate it as a
+        timestamp, an empty string is stored as an empty string (not null),
+        and there is no way to reset the field to null (omitting it or
+        sending JSON null keeps the stored value). updated_at is refreshed on
+        success. Write tier: 30 rps at the gateway.
+      operationId: updateConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectionRequest"
+            example:
+              status: error
+              last_synced_at: "2026-07-18T12:00:00Z"
+      responses:
+        "200":
+          description: The updated connection.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntegrationConnection"
+              example:
+                id: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+                provider: salesforce
+                account_ref: "acct-0042"
+                status: error
+                last_synced_at: "2026-07-18T12:00:00Z"
+                created_at: "2026-07-18T09:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          $ref: "#/components/responses/BadRequestMalformedJson"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            Two producers share this status. Handler validation failures
+            return the ApiError envelope with code VALIDATION_ERROR (checked
+            only after the 404 existence check). A JSON body that parses but
+            fails deserialization into the request type (wrong type; both
+            fields are optional, so a missing field never rejects) is rejected
+            by the axum Json extractor before the handler runs and has a
+            text/plain body; in that case the extractor rejection also
+            precedes the auth check.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyStatus:
+                  summary: Status provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "status must not be empty"
+                    details:
+                      field: status
+                      constraint: "must not be empty"
+                statusTooLong:
+                  summary: Status longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "status exceeds maximum length"
+                    details:
+                      field: status
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: status: invalid type: integer `5`, expected a string at line 1 column 12"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Connections
+      summary: Delete a connection
+      description: |
+        Deletes a connection by ID. Returns 204 with no body on success, 404
+        when no row was deleted. Write tier: 30 rps at the gateway.
+      operationId: deleteConnection
+      responses:
+        "204":
+          description: Connection deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    IntegrationConnection:
+      type: object
+      description: "A third-party integration connection record. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - provider
+        - account_ref
+        - status
+        - last_synced_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Connection ID, a UUID v4 generated at creation."
+          example: "9c1e5b7a-2d4f-4a8c-b6e1-0f3a5c7d9e2b"
+        provider:
+          type: string
+          maxLength: 255
+          description: "Integration provider name. Trimmed, non-empty, at most 255 characters. Immutable after creation."
+          example: salesforce
+        account_ref:
+          type: string
+          maxLength: 255
+          description: "Opaque reference to the external account. Trimmed, non-empty, at most 255 characters. Immutable after creation."
+          example: "acct-0042"
+        status:
+          type: string
+          maxLength: 255
+          description: "Connection status. Free-form string, not an enum. Always \"connected\" at creation; PATCH accepts any non-empty value up to 255 characters."
+          example: connected
+        last_synced_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Last successful sync timestamp. Null at creation; set only via PATCH, which stores the trimmed string verbatim without validating the format. Serialized as null when unset, never omitted."
+          example: "2026-07-18T12:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T09:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T12:00:00Z"
+    CreateConnectionRequest:
+      type: object
+      required:
+        - provider
+        - account_ref
+      properties:
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Integration provider name. Trimmed server-side; must be non-empty after trimming."
+          example: salesforce
+        account_ref:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Opaque reference to the external account. Trimmed server-side; must be non-empty after trimming."
+          example: "acct-0042"
+    UpdateConnectionRequest:
+      type: object
+      description: "Partial update. Both fields are optional; omitted fields (and fields sent as JSON null) keep their stored values."
+      properties:
+        status:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New status. Free-form string; an empty or whitespace-only value is rejected with 422."
+          example: error
+        last_synced_at:
+          type: string
+          format: date-time
+          description: "New last-sync timestamp. Trimmed and stored verbatim without format validation; an empty string is stored as an empty string. Cannot be reset to null."
+          example: "2026-07-18T12:00:00Z"
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "provider must not be empty"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: provider
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    BadRequestMalformedJson:
+      description: |
+        Request body is not syntactically valid JSON. Generated by the axum
+        Json extractor before the handler runs, so it also precedes the auth
+        check; the body is text/plain, not the ApiError envelope.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No connection with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "connection not found"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"

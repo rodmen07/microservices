@@ -104,15 +104,15 @@ When the limit is exceeded, the gateway returns 429 with a `Retry-After` header 
 | Service | Spec | Status |
 |---------|------|--------|
 | accounts-service | [`accounts-service/openapi.yaml`](../accounts-service/openapi.yaml) | Available (v1.16.1 PR1) |
-| contacts-service | `contacts-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| activities-service | `activities-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| automation-service | `automation-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| integrations-service | `integrations-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| opportunities-service | `opportunities-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| reporting-service | `reporting-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| search-service | `search-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| projects-service | `projects-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| audit-service | `audit-service/openapi.yaml` | Coming in v1.16.1 PR2 |
-| spend-service | `spend-service/openapi.yaml` | Coming in v1.16.1 PR2 |
+| contacts-service | [`contacts-service/openapi.yaml`](../contacts-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| activities-service | [`activities-service/openapi.yaml`](../activities-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| automation-service | [`automation-service/openapi.yaml`](../automation-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| integrations-service | [`integrations-service/openapi.yaml`](../integrations-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| opportunities-service | [`opportunities-service/openapi.yaml`](../opportunities-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| reporting-service | [`reporting-service/openapi.yaml`](../reporting-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| search-service | [`search-service/openapi.yaml`](../search-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| projects-service | [`projects-service/openapi.yaml`](../projects-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| audit-service | [`audit-service/openapi.yaml`](../audit-service/openapi.yaml) | Available (v1.16.1 PR2) |
+| spend-service | [`spend-service/openapi.yaml`](../spend-service/openapi.yaml) | Available (v1.16.1 PR2) |
 
 The specs are static OpenAPI 3.0.3 documents derived from the service source (router, handlers, models, auth). Spec validation in CI and the frontend Swagger UI wiring are tracked in `ROADMAP.md` under v1.16.1.

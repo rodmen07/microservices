@@ -1,0 +1,831 @@
+openapi: 3.0.3
+info:
+  title: opportunities-service API
+  version: 1.16.1
+  description: |
+    CRM opportunities service for the InfraPortal platform. Rust (axum 0.8)
+    with PostgreSQL persistence. Provides CRUD operations on sales
+    opportunities plus health and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role. /health and /ready are open.
+    Requests without a valid token receive 401; valid tokens without the admin
+    role receive 403 with body {"code": "FORBIDDEN", "message": "admin role
+    required"}.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Handler-level validation failures return
+    422 with the ApiError envelope. Framework-generated rejections (malformed
+    JSON syntax, JSON body that fails deserialization, undecodable query
+    strings) are produced by axum before the handler runs and have text/plain
+    bodies; they are documented per operation below. Because the body
+    extractor runs before the in-handler auth check, a malformed body is
+    rejected with 400 or 422 even when the request carries no token.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://opportunities-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:8080"
+    description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Opportunities
+    description: "Opportunity CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/opportunities:
+    get:
+      tags:
+        - Opportunities
+      summary: List opportunities
+      description: |
+        Returns all opportunities ordered by created_at descending, as a bare
+        JSON array. There is no pagination: no limit, offset, or total. The
+        only recognized query parameter is owner_id; all other query
+        parameters are read as free-form strings and ignored. Requires the
+        admin role, so the caller sees every opportunity unless owner_id is
+        given. Read tier: 60 rps at the gateway.
+      operationId: listOpportunities
+      parameters:
+        - name: owner_id
+          in: query
+          required: false
+          description: "Restrict results to opportunities owned by this user ID."
+          schema:
+            type: string
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+      responses:
+        "200":
+          description: Array of opportunities, newest first.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Opportunity"
+              example:
+                - id: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+                  owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                  account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                  name: "Globex expansion deal"
+                  stage: negotiation
+                  amount: 25000.0
+                  close_date: "2026-09-30"
+                  created_at: "2026-07-18T14:30:00Z"
+                  updated_at: "2026-07-18T14:30:00Z"
+                - id: "e4b6a8c0-2d1f-4e3a-9c5b-8a7d6e5f4c3b"
+                  owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                  account_id: "b2c4d6e8-0a1b-4c3d-8e5f-6a7b8c9d0e1f"
+                  name: "Initech renewal"
+                  stage: qualification
+                  amount: 0.0
+                  close_date: null
+                  created_at: "2026-07-01T09:15:00Z"
+                  updated_at: "2026-07-01T09:15:00Z"
+        "400":
+          description: |
+            Undecodable query string (invalid percent-encoding or non-UTF-8
+            bytes). Generated by the axum Query extractor before the handler
+            runs; the body is text/plain, not the ApiError envelope. Because
+            every parameter is read as a free-form string, type errors such as
+            a non-numeric value cannot occur on this operation.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize query string: invalid utf-8 sequence of 1 bytes from index 9"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Opportunities
+      summary: Create an opportunity
+      description: |
+        Creates an opportunity owned by the caller (owner_id is taken from the
+        JWT sub claim). name and account_id are trimmed and must be non-empty
+        and at most 255 characters; name is validated before account_id.
+        stage is trimmed and defaults to "qualification" when omitted or blank;
+        it is a free-form string with no length check on create. amount
+        defaults to 0. close_date is stored exactly as sent (not trimmed, not
+        format-validated). On success the service also emits an
+        opportunity.created platform event, indexes the opportunity in
+        search-service, and emits an audit event (all fire-and-forget).
+        Write tier: 30 rps at the gateway.
+      operationId: createOpportunity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOpportunityRequest"
+            example:
+              account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              name: "Globex expansion deal"
+              stage: negotiation
+              amount: 25000.0
+              close_date: "2026-09-30"
+      responses:
+        "201":
+          description: Opportunity created.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                name: "Globex expansion deal"
+                stage: negotiation
+                amount: 25000.0
+                close_date: "2026-09-30"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope. Handler-level validation failures use 422, not 400.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: |
+            Either a handler validation failure (ApiError envelope,
+            application/json) or a JSON body that parsed but failed
+            deserialization into the request type, for example a missing
+            required field or a wrong type (text/plain, generated by the axum
+            Json extractor before the handler runs).
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: Name empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name must not be empty"
+                    details:
+                      field: name
+                      constraint: "must not be empty"
+                nameTooLong:
+                  summary: Name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name exceeds maximum length of 255 characters"
+                    details:
+                      field: name
+                      constraint: "max 255 characters"
+                emptyAccountId:
+                  summary: account_id empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "account_id must not be empty"
+                    details:
+                      field: account_id
+                      constraint: "must not be empty"
+                accountIdTooLong:
+                  summary: account_id longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "account_id exceeds maximum length of 255 characters"
+                    details:
+                      field: account_id
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: missing field `account_id` at line 1 column 28"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/opportunities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: |
+          Opportunity ID (UUID v4 generated at creation, stored as TEXT). The
+          handlers do not validate the format; an arbitrary string simply
+          matches no row and yields 404.
+        schema:
+          type: string
+          format: uuid
+        example: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+    get:
+      tags:
+        - Opportunities
+      summary: Get an opportunity
+      description: |
+        Fetches a single opportunity by ID. Returns 404 when no opportunity
+        with that ID exists. Read tier: 60 rps at the gateway.
+      operationId: getOpportunity
+      responses:
+        "200":
+          description: The requested opportunity.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                name: "Globex expansion deal"
+                stage: negotiation
+                amount: 25000.0
+                close_date: "2026-09-30"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Opportunities
+      summary: Update an opportunity
+      description: |
+        Partial update. Omitted fields keep their stored values. The handler
+        fetches the existing row first, so an unknown ID returns 404 before
+        any field validation runs. name and stage, when provided, are trimmed
+        and must be non-empty and at most 255 characters. amount, when
+        provided, replaces the stored value. close_date, when provided, is
+        trimmed and stored; an empty string is stored as an empty string, so
+        there is no way to clear close_date back to null. updated_at is
+        refreshed on success. On success the service also emits an
+        opportunity.updated platform event, re-indexes the opportunity in
+        search-service, and emits an audit event (all fire-and-forget).
+        Write tier: 30 rps at the gateway.
+      operationId: updateOpportunity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOpportunityRequest"
+            example:
+              stage: closed_won
+              amount: 30000.0
+      responses:
+        "200":
+          description: The updated opportunity.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                name: "Globex expansion deal"
+                stage: closed_won
+                amount: 30000.0
+                close_date: "2026-09-30"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope. Handler-level validation failures use 422, not 400.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            Either a handler validation failure (ApiError envelope,
+            application/json) or a JSON body that parsed but failed
+            deserialization into the request type, for example a wrong field
+            type (text/plain, generated by the axum Json extractor before the
+            handler runs). Every field of the request type is optional, so a
+            missing-field rejection cannot occur on this operation.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: Name provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name cannot be empty"
+                    details:
+                      field: name
+                      constraint: "must not be empty"
+                nameTooLong:
+                  summary: Name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name exceeds maximum length of 255 characters"
+                    details:
+                      field: name
+                      constraint: "max 255 characters"
+                emptyStage:
+                  summary: Stage provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "stage cannot be empty"
+                    details:
+                      field: stage
+                      constraint: "must not be empty"
+                stageTooLong:
+                  summary: Stage longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "stage exceeds maximum length of 255 characters"
+                    details:
+                      field: stage
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: invalid type: string \"abc\", expected f64 at line 1 column 17"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Opportunities
+      summary: Delete an opportunity
+      description: |
+        Deletes an opportunity by ID. Returns 204 with no body on success, 404
+        when no row was deleted. On success the service also emits an audit
+        event and removes the opportunity from the search index
+        (fire-and-forget). Write tier: 30 rps at the gateway.
+      operationId: deleteOpportunity
+      responses:
+        "204":
+          description: Opportunity deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    Opportunity:
+      type: object
+      description: "A CRM opportunity record. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - owner_id
+        - account_id
+        - name
+        - stage
+        - amount
+        - close_date
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Opportunity ID, a UUID v4 generated at creation."
+          example: "9c1d3e5f-7a2b-4c8d-b0e1-6f4a2c8d0e3b"
+        owner_id:
+          type: string
+          description: "ID of the owning user, taken from the JWT sub claim of the creator."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        account_id:
+          type: string
+          maxLength: 255
+          description: |
+            ID of the related account. Stored as TEXT; the service does not
+            verify that the account exists, only that the value is non-empty
+            and at most 255 characters.
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        name:
+          type: string
+          maxLength: 255
+          description: "Opportunity display name. Trimmed, non-empty, at most 255 characters."
+          example: "Globex expansion deal"
+        stage:
+          type: string
+          description: |
+            Sales stage. Free-form string with no server-side enum; defaults
+            to "qualification" at creation.
+          example: negotiation
+        amount:
+          type: number
+          format: double
+          description: "Deal amount. Defaults to 0 at creation."
+          example: 25000.0
+        close_date:
+          type: string
+          nullable: true
+          description: |
+            Expected close date. Free-form string, conventionally YYYY-MM-DD,
+            but the service does not validate the format. Null when not set;
+            serialized as null, never omitted.
+          example: "2026-09-30"
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateOpportunityRequest:
+      type: object
+      required:
+        - account_id
+        - name
+      properties:
+        account_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: |
+            Related account ID. Trimmed server-side; must be non-empty after
+            trimming and at most 255 characters. Existence of the account is
+            not verified.
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Opportunity display name. Trimmed server-side; must be non-empty after trimming and at most 255 characters. Validated before account_id."
+          example: "Globex expansion deal"
+        stage:
+          type: string
+          default: qualification
+          description: |
+            Sales stage. Trimmed; a blank or omitted value defaults to
+            "qualification". Free-form string; not length-validated on create
+            (unlike update).
+          example: negotiation
+        amount:
+          type: number
+          format: double
+          default: 0
+          description: "Deal amount. Defaults to 0 when omitted."
+          example: 25000.0
+        close_date:
+          type: string
+          nullable: true
+          description: |
+            Expected close date. Stored exactly as sent (not trimmed, not
+            format-validated). Omitted or null values are stored as null.
+          example: "2026-09-30"
+    UpdateOpportunityRequest:
+      type: object
+      description: "Partial update. Every field is optional; omitted fields keep their stored values."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New display name. An empty or whitespace-only value is rejected with 422."
+          example: "Globex expansion deal"
+        stage:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New sales stage. Free-form string; an empty or whitespace-only value is rejected with 422."
+          example: closed_won
+        amount:
+          type: number
+          format: double
+          description: "New deal amount. Replaces the stored value when provided."
+          example: 30000.0
+        close_date:
+          type: string
+          description: |
+            New close date. Trimmed and stored as given; not format-validated.
+            Sending null is treated the same as omitting the field, and an
+            empty string is stored as an empty string, so close_date cannot be
+            cleared back to null once set.
+          example: "2026-09-30"
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "name must not be empty"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: name
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No opportunity with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "opportunity not found"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"

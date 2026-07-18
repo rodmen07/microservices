@@ -1,0 +1,792 @@
+openapi: 3.0.3
+info:
+  title: search-service API
+  version: 1.16.1
+  description: |
+    Platform search index for the InfraPortal CRM. Rust (axum 0.8) with
+    PostgreSQL persistence and an optional read replica: when
+    DATABASE_REPLICA_URL is set, search, list, and get queries run on the
+    replica pool while indexing writes and the health ping run on the primary.
+    Peer services (accounts-service and the other CRM services) push documents
+    into this index on entity create, update, and delete, fire-and-forget.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler.
+    As of 2026-07-18 this service is authenticated but NOT role-gated on main:
+    the decoded roles claim is never checked, so any valid token can read and
+    write the search index, and this service never returns 403. The planned
+    gating (admin or service role required) is not yet implemented.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}; this service never populates details.
+    Framework-generated rejections (malformed JSON, JSON body that fails
+    deserialization, missing or invalid query parameters) are produced by axum
+    before the handler runs, which means before the auth check, and have
+    text/plain bodies; they are documented per operation below.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://search-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:8080"
+    description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Search
+    description: |
+      Query the search index. Requires a bearer JWT; no role check is
+      performed on main as of 2026-07-18.
+  - name: Documents
+    description: |
+      Document index CRUD, used by peer services to keep the index in sync.
+      Requires a bearer JWT; no role check is performed on main as of
+      2026-07-18.
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1)
+        against the primary (write) pool, so a failing database returns 503
+        with status "degraded" and an error string. No authentication
+        required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping against the primary
+        pool. No authentication required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/search:
+    get:
+      tags:
+        - Search
+      summary: Search indexed documents
+      description: |
+        Case-insensitive substring search (SQL LIKE) of the query term against
+        document title and body, returning lightweight results with truncated
+        snippets, ordered by created_at descending. The term is trimmed and
+        lowercased server-side before matching; an empty or whitespace-only
+        term short-circuits to 200 with an empty array without touching the
+        database. LIKE wildcards (percent and underscore) in the term are not
+        escaped and act as wildcards. Results are not paginated: every
+        matching row is returned. Runs on the read (replica) pool.
+        Read tier: 60 rps at the gateway.
+      operationId: searchDocuments
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            Search term. Required: omitting the parameter entirely is rejected
+            with 400 by the axum Query extractor. Present-but-empty (q=) or
+            whitespace-only values return 200 with an empty array.
+          schema:
+            type: string
+          example: globex
+      responses:
+        "200":
+          description: |
+            Matching documents ordered by created_at descending. An empty
+            array when the term is blank or nothing matches.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchResult"
+              example:
+                - id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+                  entity_type: account
+                  entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                  title: "Globex Corporation"
+                  snippet: "Globex Corporation globex.com active"
+                - id: "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d"
+                  entity_type: activity
+                  entity_id: "8a9b0c1d-2e3f-4a5b-9c6d-7e8f9a0b1c2d"
+                  title: "Q3 renewal call with Globex"
+                  snippet: "Q3 renewal call with Globex. Discussed contract expansion to 250 seats, pricing tiers, and the migration timeline for their on-prem deployme..."
+                - id: "5e7f9a1b-3c5d-4e6f-8a9b-0c1d2e3f4a5b"
+                  entity_type: contact
+                  entity_id: "b2c4d6e8-0a1b-4c3d-8e5f-6a7b8c9d0e1f"
+                  title: "Hank Scorpio"
+                  snippet: "Hank Scorpio hank@globex.com CEO Globex Corporation"
+        "400":
+          description: |
+            Missing q parameter or a query string that fails
+            deserialization. Generated by the axum Query extractor before the
+            handler runs (and therefore before the auth check, so it takes
+            precedence over 401); the body is text/plain, not the ApiError
+            envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize query string: missing field `q`"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/search/documents:
+    get:
+      tags:
+        - Documents
+      summary: List all indexed documents
+      description: |
+        Returns every document in the index ordered by created_at descending.
+        No filtering or pagination parameters are accepted; the full table is
+        returned. Runs on the read (replica) pool. Read tier: 60 rps at the
+        gateway.
+      operationId: listDocuments
+      responses:
+        "200":
+          description: All indexed documents, newest first.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchDocument"
+              example:
+                - id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+                  entity_type: account
+                  entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                  title: "Globex Corporation"
+                  body: "Globex Corporation globex.com active"
+                  created_at: "2026-07-18T14:30:00Z"
+                  updated_at: "2026-07-18T14:30:00Z"
+                - id: "5e7f9a1b-3c5d-4e6f-8a9b-0c1d2e3f4a5b"
+                  entity_type: contact
+                  entity_id: "b2c4d6e8-0a1b-4c3d-8e5f-6a7b8c9d0e1f"
+                  title: "Hank Scorpio"
+                  body: "Hank Scorpio hank@globex.com CEO Globex Corporation"
+                  created_at: "2026-07-01T09:15:00Z"
+                  updated_at: "2026-07-10T11:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Documents
+      summary: Index a document (upsert by entity_id)
+      description: |
+        Upserts a search document keyed on entity_id. All four fields are
+        trimmed server-side and must be non-empty after trimming, otherwise
+        the handler returns 422 with the ApiError envelope. On first insert a
+        new UUID v4 document id is generated; when a document with the same
+        entity_id already exists, its entity_type, title, body, and updated_at
+        are replaced while the stored id and created_at are preserved (the
+        freshly generated id is discarded). The response is 201 in both the
+        insert and the update case, returning the document as stored.
+        Write tier: 30 rps at the gateway.
+      operationId: indexDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexDocumentRequest"
+            example:
+              entity_type: account
+              entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              title: "Globex Corporation"
+              body: "Globex Corporation globex.com active"
+      responses:
+        "201":
+          description: |
+            Document indexed. Returned for both a first-time insert and an
+            upsert of an existing entity_id; in the upsert case id and
+            created_at come from the pre-existing row.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchDocument"
+              example:
+                id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+                entity_type: account
+                entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                title: "Globex Corporation"
+                body: "Globex Corporation globex.com active"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs (and therefore before the auth check); the body
+            is text/plain, not the ApiError envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/search/documents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Document ID (UUID v4, stored as TEXT)."
+        schema:
+          type: string
+          format: uuid
+        example: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+    get:
+      tags:
+        - Documents
+      summary: Get a document
+      description: |
+        Fetches a single indexed document by its document ID. Returns 404 when
+        no document with that ID exists. Runs on the read (replica) pool.
+        Read tier: 60 rps at the gateway.
+      operationId: getDocument
+      responses:
+        "200":
+          description: The requested document.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchDocument"
+              example:
+                id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+                entity_type: account
+                entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                title: "Globex Corporation"
+                body: "Globex Corporation globex.com active"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Documents
+      summary: Update a document (full replacement)
+      description: |
+        Replaces every stored field of an existing document. Despite the PATCH
+        verb this is not a partial update: the request body is the same shape
+        as indexDocument, all four fields are required (an omitted field is
+        rejected with 422 by the Json extractor), and entity_type, entity_id,
+        title, and body are all overwritten. Fields are trimmed server-side
+        and must be non-empty after trimming, otherwise the handler returns
+        422 with the ApiError envelope. updated_at is refreshed on success;
+        created_at is preserved. Returns 404 when no document with the given
+        ID exists. Write tier: 30 rps at the gateway.
+      operationId: updateDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexDocumentRequest"
+            example:
+              entity_type: account
+              entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              title: "Globex Corporation (renamed)"
+              body: "Globex Corporation (renamed) globex.com inactive"
+      responses:
+        "200":
+          description: The updated document as stored.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchDocument"
+              example:
+                id: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+                entity_type: account
+                entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                title: "Globex Corporation (renamed)"
+                body: "Globex Corporation (renamed) globex.com inactive"
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs (and therefore before the auth check); the body
+            is text/plain, not the ApiError envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Documents
+      summary: Delete a document by ID
+      description: |
+        Deletes an indexed document by its document ID. Returns 204 with no
+        body on success, 404 when no row was deleted. Write tier: 30 rps at
+        the gateway.
+      operationId: deleteDocument
+      responses:
+        "204":
+          description: Document deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/search/documents/by-entity/{entity_id}:
+    parameters:
+      - name: entity_id
+        in: path
+        required: true
+        description: "ID of the source entity in its owning service (TEXT UUID)."
+        schema:
+          type: string
+        example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+    delete:
+      tags:
+        - Documents
+      summary: Delete a document by source entity ID
+      description: |
+        Deletes the search document indexed for the given source entity. Used
+        by peer services when the underlying entity is deleted. Idempotent:
+        returns 204 whether or not a matching document existed; this route
+        never returns 404. Write tier: 30 rps at the gateway.
+      operationId: deleteDocumentByEntity
+      responses:
+        "204":
+          description: |
+            Delete processed. No response body. Returned even when no
+            document matched the entity_id.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512; RS variants read a PEM public key from AUTH_JWT_PUBLIC_KEY).
+        The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller and is logged as the actor. The roles claim (array of strings,
+        defaults to empty) is decoded but NOT checked by any route on main
+        as of 2026-07-18: any valid token can call every /api/v1
+        route, and 403 is never returned. Planned gating (admin or service
+        role) is not yet implemented.
+  schemas:
+    SearchDocument:
+      type: object
+      description: "An indexed search document. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - entity_type
+        - entity_id
+        - title
+        - body
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Document ID, a UUID v4 generated when the entity is first indexed. Preserved across upserts."
+          example: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        entity_type:
+          type: string
+          description: "Type of the source entity, for example account, contact, or opportunity. Free-form TEXT; stored as sent after trimming."
+          example: account
+        entity_id:
+          type: string
+          description: "ID of the source entity in its owning service (TEXT UUID). Unique in the index; upserts key on this column."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        title:
+          type: string
+          description: "Document title shown in search results. Trimmed, non-empty."
+          example: "Globex Corporation"
+        body:
+          type: string
+          description: "Full indexed text searched by the q term. Trimmed, non-empty."
+          example: "Globex Corporation globex.com active"
+        created_at:
+          type: string
+          format: date-time
+          description: "First-index timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision). Preserved across upserts."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last upsert or update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    SearchResult:
+      type: object
+      description: "A lightweight search hit returned by the search endpoint."
+      required:
+        - id
+        - entity_type
+        - entity_id
+        - title
+        - snippet
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Document ID of the matching document."
+          example: "9c1d2e3f-4a5b-4c6d-8e7f-0a1b2c3d4e5f"
+        entity_type:
+          type: string
+          description: "Type of the source entity."
+          example: account
+        entity_id:
+          type: string
+          description: "ID of the source entity in its owning service."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        title:
+          type: string
+          description: "Document title."
+          example: "Globex Corporation"
+        snippet:
+          type: string
+          description: |
+            Document body truncated to its first 140 bytes followed by "..."
+            when the body exceeds 140 bytes; otherwise the full body.
+            Truncation is byte-based, not character-based.
+          example: "Globex Corporation globex.com active"
+    IndexDocumentRequest:
+      type: object
+      description: |
+        Request body shared by indexDocument (upsert) and updateDocument
+        (full replacement). All four fields are required by the deserializer;
+        each is trimmed server-side and must be non-empty after trimming.
+      required:
+        - entity_type
+        - entity_id
+        - title
+        - body
+      properties:
+        entity_type:
+          type: string
+          minLength: 1
+          description: "Type of the source entity. Trimmed server-side; must be non-empty after trimming."
+          example: account
+        entity_id:
+          type: string
+          minLength: 1
+          description: "ID of the source entity in its owning service. Upsert key: one document per entity_id."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        title:
+          type: string
+          minLength: 1
+          description: "Document title. Trimmed server-side; must be non-empty after trimming."
+          example: "Globex Corporation"
+        body:
+          type: string
+          minLength: 1
+          description: "Full text to index. Trimmed server-side; must be non-empty after trimming."
+          example: "Globex Corporation globex.com active"
+    ApiError:
+      type: object
+      description: |
+        Standard platform error envelope. details is omitted when absent,
+        never null; this service never populates details.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "entity_type, entity_id, title, and body are required"
+        details:
+          description: "Optional structured context. Always omitted by this service."
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    NotFound:
+      description: "No document with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "document not found"
+    UnprocessableEntity:
+      description: |
+        Two producers share this status. Handler validation: any of
+        entity_type, entity_id, title, or body empty or whitespace-only after
+        trimming returns the ApiError envelope (application/json). Extractor
+        rejection: a JSON body that parsed but failed deserialization into
+        the request type, for example a missing required field or a wrong
+        type, is rejected by the axum Json extractor before the handler runs
+        (and therefore before the auth check) with a text/plain body.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: VALIDATION_ERROR
+            message: "entity_type, entity_id, title, and body are required"
+        text/plain:
+          schema:
+            type: string
+          example: "Failed to deserialize the JSON body into the target type: missing field `entity_type` at line 1 column 55"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"

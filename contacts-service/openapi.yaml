@@ -1,0 +1,1017 @@
+openapi: 3.0.3
+info:
+  title: contacts-service API
+  version: 1.16.1
+  description: |
+    CRM contacts service for the InfraPortal platform. Rust (axum 0.8) with
+    PostgreSQL persistence. Provides CRUD operations on contact records plus
+    health and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role (require_admin). Requests
+    without a valid token receive 401; valid tokens without the admin role
+    receive 403 with body
+    {"code": "FORBIDDEN", "message": "admin role required"}. The handlers
+    contain owner-scoped query branches for non-admin callers, but they are
+    unreachable on this branch because require_admin rejects non-admin tokens
+    before any query runs.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Framework-generated rejections (malformed
+    JSON, JSON body that fails deserialization, invalid query string types) are
+    produced by axum before the handler runs and have text/plain bodies; they
+    are documented per operation below.
+
+    Cross-service validation: when a request supplies a non-blank account_id,
+    the service verifies it with a GET to accounts-service
+    (ACCOUNTS_SERVICE_URL). A non-2xx or failed call yields 422 with
+    {"code": "INVALID_ACCOUNT", "message": "account not found"}. If
+    ACCOUNTS_SERVICE_URL is unset the check is skipped (fail-open for local
+    development).
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://contacts-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:3011"
+    description: "Local development (default HOST 0.0.0.0, default PORT 3011)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Contacts
+    description: "Contact CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/contacts:
+    get:
+      tags:
+        - Contacts
+      summary: List contacts
+      description: |
+        Returns a paginated list of contacts ordered by last_name ascending,
+        then first_name ascending. Supports filtering by account_id and
+        lifecycle_stage (exact match), case-insensitive substring search (q)
+        across first_name, last_name, and email, and filtering by owner_id.
+        Requires the admin role, so the caller sees all contacts unless
+        owner_id is given. Read tier: 60 rps at the gateway.
+      operationId: listContacts
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum number of rows to return. Defaults to 50. Values are
+            clamped to the range 1 to 100 rather than rejected. Negative or
+            non-numeric values are rejected with 400 by the query extractor.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of rows to skip. Defaults to 0.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: account_id
+          in: query
+          required: false
+          description: "Restrict results to contacts linked to this account ID (exact match)."
+          schema:
+            type: string
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        - name: lifecycle_stage
+          in: query
+          required: false
+          description: |
+            Filter by exact lifecycle stage. The handler does not validate
+            this value against the accepted set; an unknown value is not an
+            error, it simply matches no rows.
+          schema:
+            type: string
+            enum:
+              - lead
+              - prospect
+              - customer
+              - churned
+              - evangelist
+        - name: q
+          in: query
+          required: false
+          description: |
+            Case-insensitive substring match (SQL ILIKE) applied to
+            first_name, last_name, and email; a row matches if any of the
+            three fields matches.
+          schema:
+            type: string
+          example: rivera
+        - name: owner_id
+          in: query
+          required: false
+          description: "Restrict results to contacts owned by this user ID."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated contact list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListContactsResponse"
+              example:
+                data:
+                  - id: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+                    owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                    first_name: "Elena"
+                    last_name: "Rivera"
+                    email: "elena.rivera@globex.com"
+                    phone: "+1-555-0142"
+                    lifecycle_stage: customer
+                    created_at: "2026-07-18T14:30:00Z"
+                    updated_at: "2026-07-18T14:30:00Z"
+                  - id: "d4e6f8a0-1b2c-4d3e-9f5a-6b7c8d9e0f1a"
+                    owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    account_id: null
+                    first_name: "Marcus"
+                    last_name: "Webb"
+                    email: null
+                    phone: null
+                    lifecycle_stage: lead
+                    created_at: "2026-07-01T09:15:00Z"
+                    updated_at: "2026-07-10T11:00:00Z"
+                total: 2
+                limit: 50
+                offset: 0
+        "400":
+          description: |
+            Invalid query string, for example limit=abc. Generated by the axum
+            Query extractor before the handler runs; the body is text/plain,
+            not the ApiError envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize query string: limit: invalid digit found in string"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Contacts
+      summary: Create a contact
+      description: |
+        Creates a contact owned by the caller (owner_id is taken from the JWT
+        sub claim). first_name and last_name are trimmed and must be non-empty
+        and at most 255 characters. lifecycle_stage is trimmed and defaults to
+        "lead" when omitted; an unknown value is rejected with 400. A blank or
+        whitespace-only account_id, email, or phone is stored as null. A
+        non-blank account_id is verified against accounts-service; an unknown
+        account yields 422 INVALID_ACCOUNT (the check is skipped when
+        ACCOUNTS_SERVICE_URL is unset). email is limited to 255 characters
+        after trimming; this check runs after account validation, so an
+        invalid account_id wins over an overlong email. phone has no length
+        limit. On success the service also emits a contact.created platform
+        event, indexes the contact in search-service, and emits an audit event
+        (all fire-and-forget). Write tier: 30 rps at the gateway.
+      operationId: createContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContactRequest"
+            example:
+              account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              first_name: "Elena"
+              last_name: "Rivera"
+              email: "elena.rivera@globex.com"
+              phone: "+1-555-0142"
+              lifecycle_stage: customer
+      responses:
+        "201":
+          description: Contact created. Returned values reflect server-side trimming.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                first_name: "Elena"
+                last_name: "Rivera"
+                email: "elena.rivera@globex.com"
+                phone: "+1-555-0142"
+                lifecycle_stage: customer
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Validation failure (ApiError envelope) or malformed JSON syntax
+            (text/plain, generated by the axum Json extractor before the
+            handler runs).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyFirstName:
+                  summary: first_name empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "first_name must not be empty"
+                    details:
+                      field: first_name
+                      constraint: "must not be empty"
+                firstNameTooLong:
+                  summary: first_name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "first_name exceeds maximum length"
+                    details:
+                      field: first_name
+                      constraint: "max 255 characters"
+                emptyLastName:
+                  summary: last_name empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "last_name must not be empty"
+                    details:
+                      field: last_name
+                      constraint: "must not be empty"
+                lastNameTooLong:
+                  summary: last_name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "last_name exceeds maximum length"
+                    details:
+                      field: last_name
+                      constraint: "max 255 characters"
+                invalidLifecycleStage:
+                  summary: lifecycle_stage not in the accepted set
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "invalid lifecycle_stage value"
+                    details:
+                      field: lifecycle_stage
+                      valid_values:
+                        - lead
+                        - prospect
+                        - customer
+                        - churned
+                        - evangelist
+                emailTooLong:
+                  summary: email longer than 255 characters after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "email exceeds maximum length"
+                    details:
+                      field: email
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/contacts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Contact ID (UUID v4, stored as TEXT)."
+        schema:
+          type: string
+          format: uuid
+        example: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+    get:
+      tags:
+        - Contacts
+      summary: Get a contact
+      description: |
+        Fetches a single contact by ID. Returns 404 when no contact with that
+        ID exists. Read tier: 60 rps at the gateway.
+      operationId: getContact
+      responses:
+        "200":
+          description: The requested contact.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                first_name: "Elena"
+                last_name: "Rivera"
+                email: "elena.rivera@globex.com"
+                phone: "+1-555-0142"
+                lifecycle_stage: customer
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Contacts
+      summary: Update a contact
+      description: |
+        Partial update. Omitted fields keep their stored values. The handler
+        fetches the existing row before validating the body, so an unknown ID
+        returns 404 even when the body is invalid. A first_name or last_name
+        given as empty or whitespace is rejected with 400. Sending account_id,
+        email, or phone as an empty or whitespace string clears the field to
+        null; a non-blank account_id is verified against accounts-service and
+        an unknown account yields 422 INVALID_ACCOUNT (the check is skipped
+        when ACCOUNTS_SERVICE_URL is unset). lifecycle_stage is trimmed and
+        validated against the accepted set. updated_at is refreshed on
+        success. On success the service also emits a contact.updated platform
+        event, re-indexes the contact in search-service, and emits an audit
+        event (all fire-and-forget). Write tier: 30 rps at the gateway.
+      operationId: updateContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContactRequest"
+            example:
+              lifecycle_stage: evangelist
+      responses:
+        "200":
+          description: The updated contact.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+              example:
+                id: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                first_name: "Elena"
+                last_name: "Rivera"
+                email: "elena.rivera@globex.com"
+                phone: "+1-555-0142"
+                lifecycle_stage: evangelist
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Validation failure (ApiError envelope) or malformed JSON syntax
+            (text/plain, generated by the axum Json extractor before the
+            handler runs).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyFirstName:
+                  summary: first_name provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "first_name cannot be empty"
+                    details:
+                      field: first_name
+                      constraint: "must not be empty"
+                firstNameTooLong:
+                  summary: first_name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "first_name exceeds maximum length"
+                    details:
+                      field: first_name
+                      constraint: "max 255 characters"
+                emptyLastName:
+                  summary: last_name provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "last_name cannot be empty"
+                    details:
+                      field: last_name
+                      constraint: "must not be empty"
+                lastNameTooLong:
+                  summary: last_name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "last_name exceeds maximum length"
+                    details:
+                      field: last_name
+                      constraint: "max 255 characters"
+                invalidLifecycleStage:
+                  summary: lifecycle_stage not in the accepted set
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "invalid lifecycle_stage value"
+                    details:
+                      field: lifecycle_stage
+                      valid_values:
+                        - lead
+                        - prospect
+                        - customer
+                        - churned
+                        - evangelist
+                emailTooLong:
+                  summary: email longer than 255 characters after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "email exceeds maximum length"
+                    details:
+                      field: email
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Contacts
+      summary: Delete a contact
+      description: |
+        Deletes a contact by ID. Returns 204 with no body on success, 404
+        when no row was deleted. On success the service also emits an audit
+        event and removes the contact from the search index (fire-and-forget).
+        Write tier: 30 rps at the gateway.
+      operationId: deleteContact
+      responses:
+        "204":
+          description: Contact deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    Contact:
+      type: object
+      description: "A CRM contact record. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - owner_id
+        - account_id
+        - first_name
+        - last_name
+        - email
+        - phone
+        - lifecycle_stage
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Contact ID, a UUID v4 generated at creation."
+          example: "9c1d3e5f-7a2b-4c8d-b0e6-4f2a1c9d8e7b"
+        owner_id:
+          type: string
+          description: "ID of the owning user, taken from the JWT sub claim of the creator."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        account_id:
+          type: string
+          nullable: true
+          description: |
+            ID of the linked account in accounts-service. Null when not set;
+            serialized as null, never omitted.
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        first_name:
+          type: string
+          maxLength: 255
+          description: "Contact first name. Trimmed, non-empty, at most 255 characters."
+          example: "Elena"
+        last_name:
+          type: string
+          maxLength: 255
+          description: "Contact last name. Trimmed, non-empty, at most 255 characters."
+          example: "Rivera"
+        email:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: |
+            Email address. Trimmed, at most 255 characters. No format
+            validation is applied. Null when not set; serialized as null,
+            never omitted.
+          example: "elena.rivera@globex.com"
+        phone:
+          type: string
+          nullable: true
+          description: |
+            Phone number. Trimmed; no length or format validation is applied.
+            Null when not set; serialized as null, never omitted.
+          example: "+1-555-0142"
+        lifecycle_stage:
+          type: string
+          enum:
+            - lead
+            - prospect
+            - customer
+            - churned
+            - evangelist
+          description: "Contact lifecycle stage."
+          example: customer
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateContactRequest:
+      type: object
+      required:
+        - first_name
+        - last_name
+      properties:
+        account_id:
+          type: string
+          nullable: true
+          description: |
+            ID of an existing account in accounts-service. Blank or
+            whitespace-only values are stored as null. A non-blank value is
+            verified against accounts-service; an unknown account is rejected
+            with 422 INVALID_ACCOUNT.
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        first_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Contact first name. Trimmed server-side; must be non-empty after trimming."
+          example: "Elena"
+        last_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Contact last name. Trimmed server-side; must be non-empty after trimming."
+          example: "Rivera"
+        email:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: |
+            Email address. Blank or whitespace-only values are stored as null.
+            At most 255 characters after trimming; no format validation.
+          example: "elena.rivera@globex.com"
+        phone:
+          type: string
+          nullable: true
+          description: "Phone number. Blank or whitespace-only values are stored as null. No length limit."
+          example: "+1-555-0142"
+        lifecycle_stage:
+          type: string
+          enum:
+            - lead
+            - prospect
+            - customer
+            - churned
+            - evangelist
+          default: lead
+          description: "Initial lifecycle stage. Trimmed. Defaults to lead when omitted."
+    UpdateContactRequest:
+      type: object
+      description: "Partial update. Every field is optional; omitted fields keep their stored values."
+      properties:
+        account_id:
+          type: string
+          nullable: true
+          description: |
+            New linked account ID. An empty or whitespace-only value clears
+            the link to null. A non-blank value is verified against
+            accounts-service; an unknown account is rejected with 422
+            INVALID_ACCOUNT.
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        first_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New first name. An empty or whitespace-only value is rejected with 400."
+          example: "Elena"
+        last_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New last name. An empty or whitespace-only value is rejected with 400."
+          example: "Rivera"
+        email:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: "New email. An empty or whitespace-only value clears the email to null."
+          example: "elena.rivera@globex.com"
+        phone:
+          type: string
+          nullable: true
+          description: "New phone. An empty or whitespace-only value clears the phone to null."
+          example: "+1-555-0142"
+        lifecycle_stage:
+          type: string
+          enum:
+            - lead
+            - prospect
+            - customer
+            - churned
+            - evangelist
+          description: "New lifecycle stage."
+          example: evangelist
+    ListContactsQuery:
+      type: object
+      description: "Query parameters accepted by listContacts, shown here for reference."
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        account_id:
+          type: string
+        lifecycle_stage:
+          type: string
+          enum:
+            - lead
+            - prospect
+            - customer
+            - churned
+            - evangelist
+        q:
+          type: string
+        owner_id:
+          type: string
+    ListContactsResponse:
+      type: object
+      required:
+        - data
+        - total
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contact"
+        total:
+          type: integer
+          format: int64
+          description: "Total number of rows matching the filters, ignoring pagination."
+          example: 2
+        limit:
+          type: integer
+          description: "Effective limit after clamping to the range 1 to 100."
+          example: 50
+        offset:
+          type: integer
+          description: "Effective offset applied to the query."
+          example: 0
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "first_name must not be empty"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: first_name
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No contact with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "contact not found"
+    UnprocessableEntity:
+      description: |
+        Two distinct causes share this status. (1) The supplied account_id
+        does not exist in accounts-service: handler-generated, ApiError
+        envelope with code INVALID_ACCOUNT. (2) The JSON body parsed but
+        failed deserialization into the request type, for example a missing
+        required field or a wrong type: generated by the axum Json extractor
+        before the handler runs, text/plain body.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: INVALID_ACCOUNT
+            message: "account not found"
+        text/plain:
+          schema:
+            type: string
+          example: "Failed to deserialize the JSON body into the target type: missing field `first_name` at line 1 column 2"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"
