@@ -1,0 +1,723 @@
+openapi: 3.0.3
+info:
+  title: automation-service API
+  version: 1.16.1
+  description: |
+    CRM workflow automation service for the InfraPortal platform. Rust
+    (axum 0.8) with PostgreSQL persistence. Provides CRUD operations on
+    automation workflows (trigger event to action type mappings) plus health
+    and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role. Requests without a valid token
+    receive 401; valid tokens without the admin role receive 403 with body
+    {"code": "FORBIDDEN", "message": "admin role required"}. /health and
+    /ready are unauthenticated.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Handler validation failures in this
+    service return 422 with the ApiError envelope. Framework-generated
+    rejections (malformed JSON syntax, JSON body that fails deserialization)
+    are produced by axum before the handler runs and have text/plain bodies;
+    they are documented per operation below.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://automation-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:8080"
+    description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Workflows
+    description: "Workflow CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/workflows:
+    get:
+      tags:
+        - Workflows
+      summary: List workflows
+      description: |
+        Returns every workflow as a bare JSON array ordered by created_at
+        descending. There is no pagination, filtering, or query string
+        handling: the handler takes no query parameters, so unknown query
+        parameters are ignored rather than rejected. Requires the admin role.
+        Read tier: 60 rps at the gateway.
+      operationId: listWorkflows
+      responses:
+        "200":
+          description: All workflows, newest first. The body is a bare array with no envelope.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+              example:
+                - id: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+                  name: "Notify on opportunity close"
+                  trigger_event: "opportunity.closed_won"
+                  action_type: "send_email"
+                  enabled: true
+                  created_at: "2026-07-18T14:30:00Z"
+                  updated_at: "2026-07-18T14:30:00Z"
+                - id: "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+                  name: "Index new accounts"
+                  trigger_event: "account.created"
+                  action_type: "webhook"
+                  enabled: false
+                  created_at: "2026-07-01T09:15:00Z"
+                  updated_at: "2026-07-10T11:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Workflows
+      summary: Create a workflow
+      description: |
+        Creates a workflow. name, trigger_event, and action_type are each
+        trimmed server-side and must be non-empty after trimming; an empty
+        value is rejected with 422 and the ApiError envelope. trigger_event
+        and action_type are free-form strings; no enum is enforced in code.
+        enabled is not accepted on create: a supplied enabled value is
+        silently ignored (unknown JSON fields are dropped during
+        deserialization, not rejected) and new workflows are always inserted
+        with enabled=true. Timestamps are set to the current UTC time in
+        %Y-%m-%dT%H:%M:%SZ format. Write tier: 30 rps at the gateway.
+      operationId: createWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowRequest"
+            example:
+              name: "Notify on opportunity close"
+              trigger_event: "opportunity.closed_won"
+              action_type: "send_email"
+      responses:
+        "201":
+          description: Workflow created with enabled=true.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+              example:
+                id: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+                name: "Notify on opportunity close"
+                trigger_event: "opportunity.closed_won"
+                action_type: "send_email"
+                enabled: true
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: |
+            Two distinct sources share this status. Handler validation (a
+            required field empty after trimming) returns the ApiError envelope
+            as application/json. A JSON body that parses but fails
+            deserialization into CreateWorkflowRequest (missing field, wrong
+            type) is rejected by the axum Json extractor before the handler
+            runs and has a text/plain body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: name empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name is required"
+                    details:
+                      field: name
+                      constraint: "must not be empty"
+                emptyTriggerEvent:
+                  summary: trigger_event empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "trigger_event is required"
+                    details:
+                      field: trigger_event
+                      constraint: "must not be empty"
+                emptyActionType:
+                  summary: action_type empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "action_type is required"
+                    details:
+                      field: action_type
+                      constraint: "must not be empty"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: missing field `name` at line 1 column 2"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/workflows/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Workflow ID (UUID v4, stored as TEXT)."
+        schema:
+          type: string
+          format: uuid
+        example: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+    get:
+      tags:
+        - Workflows
+      summary: Get a workflow
+      description: |
+        Fetches a single workflow by ID. Returns 404 when no workflow with
+        that ID exists. Read tier: 60 rps at the gateway.
+      operationId: getWorkflow
+      responses:
+        "200":
+          description: The requested workflow.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+              example:
+                id: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+                name: "Notify on opportunity close"
+                trigger_event: "opportunity.closed_won"
+                action_type: "send_email"
+                enabled: true
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Workflows
+      summary: Update a workflow
+      description: |
+        Partial update. Omitted fields keep their stored values. The handler
+        loads the existing row first, so an unknown ID returns 404 before any
+        field validation runs. name, trigger_event, and action_type, when
+        provided, are trimmed and must be non-empty after trimming; an empty
+        value is rejected with 422 and the ApiError envelope. enabled toggles
+        the workflow on or off. updated_at is refreshed to the current UTC
+        time on success. Write tier: 30 rps at the gateway.
+      operationId: updateWorkflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkflowRequest"
+            example:
+              enabled: false
+      responses:
+        "200":
+          description: The updated workflow.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+              example:
+                id: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+                name: "Notify on opportunity close"
+                trigger_event: "opportunity.closed_won"
+                action_type: "send_email"
+                enabled: false
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            Two distinct sources share this status. Handler validation (a
+            provided field empty after trimming) returns the ApiError envelope
+            as application/json. A JSON body that parses but fails
+            deserialization into UpdateWorkflowRequest (for example enabled
+            given as a string) is rejected by the axum Json extractor before
+            the handler runs and has a text/plain body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: name provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name cannot be empty"
+                    details:
+                      field: name
+                      constraint: "must not be empty"
+                emptyTriggerEvent:
+                  summary: trigger_event provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "trigger_event cannot be empty"
+                    details:
+                      field: trigger_event
+                      constraint: "must not be empty"
+                emptyActionType:
+                  summary: action_type provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "action_type cannot be empty"
+                    details:
+                      field: action_type
+                      constraint: "must not be empty"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: invalid type: string \"yes\", expected a boolean at line 1 column 18"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Workflows
+      summary: Delete a workflow
+      description: |
+        Deletes a workflow by ID. Returns 204 with no body on success, 404
+        when no row was deleted. Write tier: 30 rps at the gateway.
+      operationId: deleteWorkflow
+      responses:
+        "204":
+          description: Workflow deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    Workflow:
+      type: object
+      description: "An automation workflow record. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - name
+        - trigger_event
+        - action_type
+        - enabled
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Workflow ID, a UUID v4 generated at creation."
+          example: "9c2e4f6a-1b3d-4e5f-8a7b-0c1d2e3f4a5b"
+        name:
+          type: string
+          description: "Workflow display name. Trimmed, non-empty. No maximum length is enforced in code."
+          example: "Notify on opportunity close"
+        trigger_event:
+          type: string
+          description: "Platform event that fires the workflow. Free-form string; no enum is enforced in code."
+          example: "opportunity.closed_won"
+        action_type:
+          type: string
+          description: "Action executed when the trigger fires. Free-form string; no enum is enforced in code."
+          example: "send_email"
+        enabled:
+          type: boolean
+          description: "Whether the workflow is active. Always true at creation; toggled via PATCH."
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateWorkflowRequest:
+      type: object
+      required:
+        - name
+        - trigger_event
+        - action_type
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: "Workflow display name. Trimmed server-side; must be non-empty after trimming."
+          example: "Notify on opportunity close"
+        trigger_event:
+          type: string
+          minLength: 1
+          description: "Trigger event name. Trimmed server-side; must be non-empty after trimming."
+          example: "opportunity.closed_won"
+        action_type:
+          type: string
+          minLength: 1
+          description: "Action type name. Trimmed server-side; must be non-empty after trimming."
+          example: "send_email"
+    UpdateWorkflowRequest:
+      type: object
+      description: "Partial update. Every field is optional; omitted fields keep their stored values."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: "New display name. An empty or whitespace-only value is rejected with 422."
+          example: "Notify on opportunity close"
+        trigger_event:
+          type: string
+          minLength: 1
+          description: "New trigger event. An empty or whitespace-only value is rejected with 422."
+          example: "opportunity.closed_won"
+        action_type:
+          type: string
+          minLength: 1
+          description: "New action type. An empty or whitespace-only value is rejected with 422."
+          example: "send_email"
+        enabled:
+          type: boolean
+          description: "Enable or disable the workflow."
+          example: false
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "name is required"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: name
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No workflow with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "workflow not found"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"
