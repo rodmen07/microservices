@@ -29,8 +29,12 @@ async fn emit_audit(
     entity_label: Option<&str>,
     auth_header: &str,
 ) {
-    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else { return };
-    if url.trim().is_empty() { return }
+    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else {
+        return;
+    };
+    if url.trim().is_empty() {
+        return;
+    }
     let body = serde_json::json!({
         "entity_type": entity_type, "entity_id": entity_id,
         "action": action, "actor_id": actor_id, "entity_label": entity_label,
@@ -62,6 +66,19 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
 
     validate_authorization_header(header_value)
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+}
+
+// Validates the Bearer token and requires the admin role, returning 403 for non-admin callers
+fn require_admin(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
 }
 
 // Checks whether a lifecycle stage string is one of the accepted values
@@ -104,18 +121,14 @@ pub async fn list_contacts(
     State(state): State<AppState>,
     Query(params): Query<ListContactsQuery>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
-
-    let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
-    let offset = params.offset.unwrap_or(0) as i64;
-
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+
+    let limit = params.limit.unwrap_or(50).clamp(1, 100) as i64;
+    let offset = params.offset.unwrap_or(0) as i64;
 
     let name_pattern = params.q.as_deref().map(|q| format!("%{}%", q));
 
@@ -231,7 +244,7 @@ pub async fn get_contact(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -252,7 +265,7 @@ pub async fn get_contact(
         Ok(Some(contact)) => {
             tracing::debug!(contact_id = %id, actor = %claims.sub, "get_contact ok");
             Json(contact).into_response()
-        },
+        }
         Ok(None) => error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "contact not found"),
         Err(e) => {
             tracing::error!("get_contact db error: {e}");
@@ -271,9 +284,10 @@ pub async fn create_contact(
     State(state): State<AppState>,
     Json(body): Json<CreateContactRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_admin(&headers) {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
 
     let first_name = body.first_name.trim().to_string();
     let last_name = body.last_name.trim().to_string();
@@ -336,7 +350,9 @@ pub async fn create_contact(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid lifecycle_stage value".to_string(),
-                details: Some(json!({ "field": "lifecycle_stage", "valid_values": VALID_LIFECYCLE_STAGES })),
+                details: Some(
+                    json!({ "field": "lifecycle_stage", "valid_values": VALID_LIFECYCLE_STAGES }),
+                ),
             }),
         )
             .into_response();
@@ -387,10 +403,6 @@ pub async fn create_contact(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-    let claims = match require_auth(&headers) {
-        Ok(c) => c,
-        Err(resp) => return resp,
-    };
     let owner_id = claims.sub.clone();
 
     let id = Uuid::new_v4().to_string();
@@ -453,8 +465,21 @@ pub async fn create_contact(
     );
 
     let label = format!("{} {}", contact.first_name, contact.last_name);
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "contact", &contact.id, "created", &contact.owner_id, Some(&label), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "contact",
+        &contact.id,
+        "created",
+        &contact.owner_id,
+        Some(&label),
+        &auth_hdr,
+    )
+    .await;
 
     tracing::info!(contact_id = %contact.id, actor = %claims.sub, "contact created");
     (StatusCode::CREATED, Json(contact)).into_response()
@@ -467,7 +492,7 @@ pub async fn update_contact(
     State(state): State<AppState>,
     Json(body): Json<UpdateContactRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -510,7 +535,9 @@ pub async fn update_contact(
                 Json(ApiError {
                     code: "VALIDATION_ERROR".to_string(),
                     message: "first_name cannot be empty".to_string(),
-                    details: Some(json!({ "field": "first_name", "constraint": "must not be empty" })),
+                    details: Some(
+                        json!({ "field": "first_name", "constraint": "must not be empty" }),
+                    ),
                 }),
             )
                 .into_response();
@@ -522,13 +549,15 @@ pub async fn update_contact(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "first_name exceeds maximum length".to_string(),
-                        details: Some(json!({ "field": "first_name", "constraint": "max 255 characters" })),
+                        details: Some(
+                            json!({ "field": "first_name", "constraint": "max 255 characters" }),
+                        ),
                     }),
                 )
                     .into_response();
             }
             n.to_string()
-        },
+        }
         None => existing.first_name.clone(),
     };
 
@@ -539,7 +568,9 @@ pub async fn update_contact(
                 Json(ApiError {
                     code: "VALIDATION_ERROR".to_string(),
                     message: "last_name cannot be empty".to_string(),
-                    details: Some(json!({ "field": "last_name", "constraint": "must not be empty" })),
+                    details: Some(
+                        json!({ "field": "last_name", "constraint": "must not be empty" }),
+                    ),
                 }),
             )
                 .into_response();
@@ -551,13 +582,15 @@ pub async fn update_contact(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "last_name exceeds maximum length".to_string(),
-                        details: Some(json!({ "field": "last_name", "constraint": "max 255 characters" })),
+                        details: Some(
+                            json!({ "field": "last_name", "constraint": "max 255 characters" }),
+                        ),
                     }),
                 )
                     .into_response();
             }
             n.to_string()
-        },
+        }
         None => existing.last_name.clone(),
     };
 
@@ -621,7 +654,9 @@ pub async fn update_contact(
                         Json(ApiError {
                             code: "VALIDATION_ERROR".to_string(),
                             message: "email exceeds maximum length".to_string(),
-                            details: Some(json!({ "field": "email", "constraint": "max 255 characters" })),
+                            details: Some(
+                                json!({ "field": "email", "constraint": "max 255 characters" }),
+                            ),
                         }),
                     )
                         .into_response();
@@ -705,8 +740,21 @@ pub async fn update_contact(
     );
 
     let label = format!("{} {}", updated.first_name, updated.last_name);
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "contact", &updated.id, "updated", &updated.owner_id, Some(&label), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "contact",
+        &updated.id,
+        "updated",
+        &updated.owner_id,
+        Some(&label),
+        &auth_hdr,
+    )
+    .await;
 
     tracing::info!(contact_id = %updated.id, actor = %claims.sub, "contact updated");
     Json(updated).into_response()
@@ -718,7 +766,7 @@ pub async fn delete_contact(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -739,8 +787,21 @@ pub async fn delete_contact(
 
     match deletion {
         Ok(result) if result.rows_affected() > 0 => {
-            let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-            emit_audit(&state.http_client, "contact", &id, "deleted", &claims.sub, None, &auth_hdr).await;
+            let auth_hdr = headers
+                .get("Authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            emit_audit(
+                &state.http_client,
+                "contact",
+                &id,
+                "deleted",
+                &claims.sub,
+                None,
+                &auth_hdr,
+            )
+            .await;
             crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
             tracing::info!(contact_id = %id, actor = %claims.sub, "contact deleted");
             StatusCode::NO_CONTENT.into_response()

@@ -54,6 +54,23 @@ fn make_client_jwt(user_id: &str) -> String {
     format!("Bearer {token}")
 }
 
+fn make_jwt_with_roles(user_id: &str, roles: &[&str]) -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    let claims = json!({
+        "sub": user_id,
+        "iss": "auth-service",
+        "exp": 9999999999u64,
+        "roles": roles
+    });
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(b"dev-insecure-secret-change-me"),
+    )
+    .unwrap();
+    format!("Bearer {token}")
+}
+
 async fn body_json(body: Body) -> Value {
     let bytes = body.collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
@@ -65,7 +82,12 @@ async fn body_json(body: Body) -> Value {
 async fn health_returns_ok() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -392,7 +414,11 @@ async fn create_and_list_deliverables() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let list = body_json(resp.into_body()).await;
-    assert!(list.as_array().unwrap().iter().any(|d| d["name"] == "Deploy to staging"));
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d["name"] == "Deploy to staging"));
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -492,4 +518,335 @@ async fn client_can_read_own_project() {
     assert_eq!(resp.status(), StatusCode::OK);
     let fetched = body_json(resp.into_body()).await;
     assert_eq!(fetched["client_user_id"], client_id);
+}
+
+// ── Links ─────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn create_and_list_links() {
+    let app = test_app().await;
+    let jwt = make_jwt();
+    let project_id = create_test_project(app.clone(), &jwt).await;
+
+    // Create link
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project_id}/links"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &jwt)
+                .body(Body::from(
+                    json!({
+                        "link_type": "github",
+                        "label": "Repository",
+                        "url": "https://github.com/example/repo",
+                        "sort_order": 1
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let link = body_json(resp.into_body()).await;
+    assert_eq!(link["label"], "Repository");
+    assert_eq!(link["project_id"], project_id);
+
+    // List links
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{project_id}/links"))
+                .header(header::AUTHORIZATION, &jwt)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = body_json(resp.into_body()).await;
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|l| l["label"] == "Repository"));
+}
+
+// ── Emails ────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sync_and_list_emails() {
+    let app = test_app().await;
+    let jwt = make_jwt();
+    let project_id = create_test_project(app.clone(), &jwt).await;
+
+    // Admin syncs an email thread
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project_id}/emails/sync"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &jwt)
+                .body(Body::from(
+                    json!({
+                        "emails": [{
+                            "thread_id": "thread-int-test-1",
+                            "subject": "Kickoff notes",
+                            "from_email": "client@example.com",
+                            "snippet": "Notes from the kickoff call",
+                            "received_at": "2026-07-01T00:00:00Z"
+                        }]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let synced = body_json(resp.into_body()).await;
+    assert_eq!(synced["upserted"], 1);
+
+    // List emails
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{project_id}/emails"))
+                .header(header::AUTHORIZATION, &jwt)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let list = body_json(resp.into_body()).await;
+    assert!(list
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["subject"] == "Kickoff notes"));
+}
+
+// ── Role gating ───────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn client_gets_403_on_admin_routes() {
+    let app = test_app().await;
+    let client_jwt = make_client_jwt("client-user-403");
+    let fake_id = "00000000-0000-0000-0000-000000000000";
+
+    // Every admin-only route must reject a client token with 403 before any
+    // lookup happens, so fake ids are fine here.
+    let attempts: Vec<(&str, String, Option<serde_json::Value>)> = vec![
+        (
+            "POST",
+            "/api/v1/projects".to_string(),
+            Some(json!({ "account_id": "acc-403", "name": "Forbidden" })),
+        ),
+        (
+            "PATCH",
+            format!("/api/v1/projects/{fake_id}"),
+            Some(json!({ "name": "Forbidden" })),
+        ),
+        ("DELETE", format!("/api/v1/projects/{fake_id}"), None),
+        (
+            "POST",
+            format!("/api/v1/projects/{fake_id}/milestones"),
+            Some(json!({ "name": "Forbidden" })),
+        ),
+        (
+            "PATCH",
+            format!("/api/v1/milestones/{fake_id}"),
+            Some(json!({ "name": "Forbidden" })),
+        ),
+        ("DELETE", format!("/api/v1/milestones/{fake_id}"), None),
+        (
+            "POST",
+            format!("/api/v1/milestones/{fake_id}/deliverables"),
+            Some(json!({ "name": "Forbidden" })),
+        ),
+        (
+            "PATCH",
+            format!("/api/v1/deliverables/{fake_id}"),
+            Some(json!({ "name": "Forbidden" })),
+        ),
+        ("DELETE", format!("/api/v1/deliverables/{fake_id}"), None),
+        (
+            "POST",
+            format!("/api/v1/projects/{fake_id}/links"),
+            Some(json!({
+                "link_type": "github",
+                "label": "Forbidden",
+                "url": "https://example.com"
+            })),
+        ),
+        ("DELETE", format!("/api/v1/links/{fake_id}"), None),
+        (
+            "POST",
+            format!("/api/v1/projects/{fake_id}/emails/sync"),
+            Some(json!({ "emails": [] })),
+        ),
+    ];
+
+    for (method, uri, payload) in attempts {
+        let builder = Request::builder()
+            .method(method)
+            .uri(uri.as_str())
+            .header(header::AUTHORIZATION, &client_jwt);
+        let request = match payload {
+            Some(body) => builder
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+            None => builder.body(Body::empty()).unwrap(),
+        };
+        let resp = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "expected 403 for client token on {method} {uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn cross_client_access_returns_404() {
+    let app = test_app().await;
+    let admin_jwt = make_jwt();
+    let owner_id = "client-owner-xc";
+    let intruder_jwt = make_client_jwt("client-intruder-xc");
+
+    // Admin creates a project assigned to the owner client
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/projects")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &admin_jwt)
+                .body(Body::from(
+                    json!({
+                        "account_id": "acc-xc-test",
+                        "client_user_id": owner_id,
+                        "name": "Cross Client Test Project"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let created = body_json(resp.into_body()).await;
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // A different client gets 404 (not 403) to avoid leaking existence
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{id}"))
+                .header(header::AUTHORIZATION, &intruder_jwt)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // Nested resources are hidden the same way
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/projects/{id}/messages"))
+                .header(header::AUTHORIZATION, &intruder_jwt)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn token_without_admin_or_client_role_gets_403() {
+    let app = test_app().await;
+    let admin_jwt = make_jwt();
+    let no_role_jwt = make_jwt_with_roles("no-role-user", &[]);
+    let service_jwt = make_jwt_with_roles("search-service", &["service"]);
+
+    // Seed real data so the 403s are about the role, not missing rows
+    let project_id = create_test_project(app.clone(), &admin_jwt).await;
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project_id}/milestones"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &admin_jwt)
+                .body(Body::from(json!({ "name": "Gated Phase" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let milestone_id = body_json(resp.into_body()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let read_uris = [
+        "/api/v1/projects".to_string(),
+        format!("/api/v1/projects/{project_id}"),
+        format!("/api/v1/projects/{project_id}/milestones"),
+        format!("/api/v1/milestones/{milestone_id}/deliverables"),
+        format!("/api/v1/projects/{project_id}/messages"),
+        format!("/api/v1/projects/{project_id}/links"),
+        format!("/api/v1/projects/{project_id}/emails"),
+    ];
+
+    for uri in &read_uris {
+        for jwt in [&no_role_jwt, &service_jwt] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri.as_str())
+                        .header(header::AUTHORIZATION, jwt)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::FORBIDDEN,
+                "expected 403 for non-admin non-client token on GET {uri}"
+            );
+        }
+    }
+
+    // A roles [] token must not be able to post messages as a client
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/projects/{project_id}/messages"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &no_role_jwt)
+                .body(Body::from(
+                    json!({ "body": "should never land" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

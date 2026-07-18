@@ -19,7 +19,7 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -27,7 +27,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -78,7 +78,7 @@ async fn list_workflows_requires_auth() {
 #[tokio::test]
 async fn create_and_list_workflow() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -127,7 +127,7 @@ async fn create_and_list_workflow() {
 #[tokio::test]
 async fn toggle_workflow_enabled() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -176,7 +176,7 @@ async fn toggle_workflow_enabled() {
 #[tokio::test]
 async fn delete_workflow() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -233,7 +233,7 @@ async fn delete_workflow() {
 #[tokio::test]
 async fn get_workflow_found() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -276,7 +276,7 @@ async fn get_workflow_found() {
 #[tokio::test]
 async fn get_workflow_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -293,7 +293,7 @@ async fn get_workflow_not_found_is_404() {
 #[tokio::test]
 async fn create_workflow_missing_required_fields_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -316,7 +316,7 @@ async fn create_workflow_missing_required_fields_is_422() {
 #[tokio::test]
 async fn update_workflow_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -335,7 +335,7 @@ async fn update_workflow_not_found_is_404() {
 #[tokio::test]
 async fn update_workflow_empty_name_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -375,7 +375,7 @@ async fn update_workflow_empty_name_is_422() {
 #[tokio::test]
 async fn delete_workflow_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -404,4 +404,120 @@ async fn invalid_auth_token_is_401() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn list_workflows_without_admin_role_is_403() {
+    let app = test_app().await;
+
+    let no_roles = make_jwt(&[]);
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workflows")
+                .header(header::AUTHORIZATION, &no_roles)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+
+    let client = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workflows")
+                .header(header::AUTHORIZATION, &client)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn create_workflow_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/workflows")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({
+                        "name": "Forbidden",
+                        "trigger_event": "contact.created",
+                        "action_type": "send_email"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn get_workflow_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn update_workflow_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(json!({"enabled": false}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn delete_workflow_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/workflows/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

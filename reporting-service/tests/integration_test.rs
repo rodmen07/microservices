@@ -127,7 +127,7 @@ async fn dashboard_view_endpoint_user_and_admin() {
 
     assert_eq!(create_resp.status(), StatusCode::CREATED);
 
-    // user fetch should include at least 1 report via metric match
+    // non-admin token is rejected with 403 now that the dashboard is admin-only
     let user_dash = app
         .clone()
         .oneshot(
@@ -139,10 +139,10 @@ async fn dashboard_view_endpoint_user_and_admin() {
         )
         .await
         .unwrap();
-    assert_eq!(user_dash.status(), StatusCode::OK);
+    assert_eq!(user_dash.status(), StatusCode::FORBIDDEN);
 
     let user_body = body_json(user_dash.into_body()).await;
-    assert!(user_body["reports"].as_i64().unwrap() >= 1);
+    assert_eq!(user_body["code"], "FORBIDDEN");
 
     // admin query for specific user_id should include same reports count
     let admin_dash = app
@@ -164,22 +164,7 @@ async fn dashboard_view_endpoint_user_and_admin() {
 #[tokio::test]
 async fn create_report_and_check_dashboard() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
-
-    // Dashboard starts empty
-    let dash_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/reports/dashboard")
-                .header(header::AUTHORIZATION, &auth)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let dash = body_json(dash_resp.into_body()).await;
-    assert_eq!(dash["active_reports"], 0);
+    let auth = make_admin_jwt(&uid);
 
     // Create a report
     let create_resp = app
@@ -207,8 +192,8 @@ async fn create_report_and_check_dashboard() {
     let created = body_json(create_resp.into_body()).await;
     assert_eq!(created["metric"], "revenue");
 
-    // Dashboard now shows 1 report
-    let dash2_resp = app
+    // Dashboard reflects the new report; admin counts are global, so use lower bounds
+    let dash_resp = app
         .clone()
         .oneshot(
             Request::builder()
@@ -219,9 +204,10 @@ async fn create_report_and_check_dashboard() {
         )
         .await
         .unwrap();
-    let dash2 = body_json(dash2_resp.into_body()).await;
-    assert_eq!(dash2["active_reports"], 1);
-    assert!(dash2["core_metrics"]
+    assert_eq!(dash_resp.status(), StatusCode::OK);
+    let dash = body_json(dash_resp.into_body()).await;
+    assert!(dash["active_reports"].as_i64().unwrap() >= 1);
+    assert!(dash["core_metrics"]
         .as_array()
         .unwrap()
         .contains(&json!("revenue")));
@@ -230,7 +216,7 @@ async fn create_report_and_check_dashboard() {
 #[tokio::test]
 async fn update_report() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -275,7 +261,7 @@ async fn update_report() {
 #[tokio::test]
 async fn get_report_found() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -317,7 +303,7 @@ async fn get_report_found() {
 #[tokio::test]
 async fn get_report_not_found_is_404() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -334,7 +320,7 @@ async fn get_report_not_found_is_404() {
 #[tokio::test]
 async fn list_reports_returns_array() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
 
     app.clone()
         .oneshot(
@@ -371,7 +357,7 @@ async fn list_reports_returns_array() {
 #[tokio::test]
 async fn delete_report_returns_204() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
 
     let create_resp = app
         .clone()
@@ -423,7 +409,7 @@ async fn delete_report_returns_204() {
 #[tokio::test]
 async fn delete_report_not_found_is_404() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -441,7 +427,7 @@ async fn delete_report_not_found_is_404() {
 #[tokio::test]
 async fn create_report_missing_required_fields_is_422() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -462,7 +448,7 @@ async fn create_report_missing_required_fields_is_422() {
 #[tokio::test]
 async fn update_report_not_found_is_404() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -518,7 +504,9 @@ async fn update_report_requires_auth_is_401() {
                 .method("PATCH")
                 .uri("/api/v1/reports/00000000-0000-0000-0000-000000000000")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(json!({"name": "Unauthorized Update"}).to_string()))
+                .body(Body::from(
+                    json!({"name": "Unauthorized Update"}).to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -545,7 +533,7 @@ async fn delete_report_requires_auth_is_401() {
 #[tokio::test]
 async fn create_report_invalid_json_is_400() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -564,7 +552,7 @@ async fn create_report_invalid_json_is_400() {
 #[tokio::test]
 async fn update_report_invalid_json_is_400() {
     let (app, uid) = test_app().await;
-    let auth = make_jwt(&uid);
+    let auth = make_admin_jwt(&uid);
     let resp = app
         .oneshot(
             Request::builder()
@@ -578,4 +566,179 @@ async fn update_report_invalid_json_is_400() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn dashboard_client_role_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/dashboard")
+                .header(header::AUTHORIZATION, make_jwt_for(&uid, &["client"]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn dashboard_summary_non_admin_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/reports/dashboard")
+                .header(header::AUTHORIZATION, make_jwt(&uid))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn list_reports_non_admin_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/reports")
+                .header(header::AUTHORIZATION, make_jwt(&uid))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn list_reports_client_role_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/reports")
+                .header(header::AUTHORIZATION, make_jwt_for(&uid, &["client"]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn create_report_non_admin_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/reports")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, make_jwt(&uid))
+                .body(Body::from(
+                    json!({"name": "Blocked Report", "metric": "blocked"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn create_report_client_role_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/reports")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, make_jwt_for(&uid, &["client"]))
+                .body(Body::from(
+                    json!({"name": "Blocked Report", "metric": "blocked"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn export_reports_client_role_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/reports/export?format=json")
+                .header(header::AUTHORIZATION, make_jwt_for(&uid, &["client"]))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn get_report_non_admin_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/reports/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, make_jwt(&uid))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn update_report_client_role_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/reports/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, make_jwt_for(&uid, &["client"]))
+                .body(Body::from(json!({"name": "Blocked Update"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn delete_report_non_admin_is_403() {
+    let (app, uid) = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/reports/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, make_jwt(&uid))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

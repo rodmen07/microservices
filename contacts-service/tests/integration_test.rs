@@ -20,13 +20,13 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     let claims = json!({
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
     let token = encode(
         &Header::new(Algorithm::HS256),
@@ -177,12 +177,126 @@ async fn malformed_auth_header_is_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
+// ── Role gating ───────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn list_contacts_non_admin_is_403() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/contacts")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn get_contact_non_admin_is_403() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/contacts/any-id")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn create_contact_non_admin_is_403() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/contacts")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::from(
+                        json!({"first_name": "Jane", "last_name": "Doe"}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn update_contact_non_admin_is_403() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/contacts/any-id")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::from(json!({"first_name": "X"}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn delete_contact_non_admin_is_403() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/contacts/any-id")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
 // ── Create ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn create_contact_happy_path() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -219,7 +333,7 @@ async fn create_contact_happy_path() {
 #[tokio::test]
 async fn create_contact_defaults_lifecycle_stage_to_lead() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -247,7 +361,7 @@ async fn create_contact_defaults_lifecycle_stage_to_lead() {
 #[tokio::test]
 async fn create_contact_empty_first_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -272,7 +386,7 @@ async fn create_contact_empty_first_name_is_400() {
 #[tokio::test]
 async fn create_contact_empty_last_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -297,7 +411,7 @@ async fn create_contact_empty_last_name_is_400() {
 #[tokio::test]
 async fn create_contact_invalid_lifecycle_stage_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -325,7 +439,7 @@ async fn create_contact_invalid_lifecycle_stage_is_400() {
 async fn create_contact_with_account_id_fails_open_when_no_accounts_service() {
     // ACCOUNTS_SERVICE_URL not set → fail-open, contact is created
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -357,7 +471,7 @@ async fn create_contact_with_account_id_fails_open_when_no_accounts_service() {
 #[tokio::test]
 async fn get_contact_found() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -399,7 +513,7 @@ async fn get_contact_found() {
 #[tokio::test]
 async fn get_contact_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -422,7 +536,7 @@ async fn get_contact_not_found_is_404() {
 #[tokio::test]
 async fn list_contacts_returns_paginated_response() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     for (f, l) in [("Alice", "Smith"), ("Bob", "Jones"), ("Carol", "Brown")] {
         app.clone()
@@ -463,7 +577,7 @@ async fn list_contacts_returns_paginated_response() {
 #[tokio::test]
 async fn list_contacts_filter_by_lifecycle_stage() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -515,7 +629,7 @@ async fn list_contacts_filter_by_lifecycle_stage() {
 #[tokio::test]
 async fn list_contacts_filter_by_account_id() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     for first in ["Alice", "Bob"] {
         app.clone()
@@ -576,7 +690,7 @@ async fn list_contacts_filter_by_account_id() {
 #[tokio::test]
 async fn list_contacts_filter_by_q() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -614,7 +728,7 @@ async fn list_contacts_filter_by_q() {
 #[tokio::test]
 async fn update_contact_happy_path() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -669,7 +783,7 @@ async fn update_contact_happy_path() {
 #[tokio::test]
 async fn update_contact_partial_preserves_fields() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -721,7 +835,7 @@ async fn update_contact_partial_preserves_fields() {
 #[tokio::test]
 async fn update_contact_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -742,7 +856,7 @@ async fn update_contact_not_found_is_404() {
 #[tokio::test]
 async fn update_contact_empty_first_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -785,7 +899,7 @@ async fn update_contact_empty_first_name_is_400() {
 #[tokio::test]
 async fn update_contact_empty_last_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -828,7 +942,7 @@ async fn update_contact_empty_last_name_is_400() {
 #[tokio::test]
 async fn update_contact_invalid_lifecycle_stage_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -875,7 +989,7 @@ async fn update_contact_invalid_lifecycle_stage_is_400() {
 #[tokio::test]
 async fn delete_contact_returns_204() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -927,7 +1041,7 @@ async fn delete_contact_returns_204() {
 #[tokio::test]
 async fn delete_contact_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
