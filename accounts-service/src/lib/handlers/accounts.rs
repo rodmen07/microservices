@@ -27,8 +27,12 @@ async fn emit_audit(
     entity_label: Option<&str>,
     auth_header: &str,
 ) {
-    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else { return };
-    if url.trim().is_empty() { return }
+    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else {
+        return;
+    };
+    if url.trim().is_empty() {
+        return;
+    }
     let body = serde_json::json!({
         "entity_type": entity_type, "entity_id": entity_id,
         "action": action, "actor_id": actor_id, "entity_label": entity_label,
@@ -77,6 +81,21 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the Bearer token and requires the admin role, returning 401/403 on failure
+fn require_admin(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+
+    Ok(claims)
+}
+
 // Checks whether a status string is one of the accepted account status values
 fn validate_status(status: &str) -> bool {
     VALID_STATUSES.contains(&status)
@@ -88,7 +107,7 @@ pub async fn list_accounts(
     State(state): State<AppState>,
     Query(params): Query<ListAccountsQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(claims) => claims,
         Err(resp) => return resp,
     };
@@ -192,7 +211,7 @@ pub async fn get_account(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(claims) => claims,
         Err(resp) => return resp,
     };
@@ -230,9 +249,10 @@ pub async fn create_account(
     State(state): State<AppState>,
     Json(body): Json<CreateAccountRequest>,
 ) -> Response {
-    if let Err(resp) = require_auth(&headers) {
-        return resp;
-    }
+    let claims = match require_admin(&headers) {
+        Ok(claims) => claims,
+        Err(resp) => return resp,
+    };
 
     let name = body.name.trim().to_string();
     if name.is_empty() {
@@ -283,11 +303,6 @@ pub async fn create_account(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
-
-    let claims = match require_auth(&headers) {
-        Ok(claims) => claims,
-        Err(resp) => return resp,
-    };
 
     let owner_id = claims.sub.clone();
     let id = Uuid::new_v4().to_string();
@@ -346,8 +361,21 @@ pub async fn create_account(
         ),
     );
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "account", &account.id, "created", &account.owner_id, Some(&account.name), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "account",
+        &account.id,
+        "created",
+        &account.owner_id,
+        Some(&account.name),
+        &auth_hdr,
+    )
+    .await;
 
     (StatusCode::CREATED, Json(account)).into_response()
 }
@@ -359,7 +387,7 @@ pub async fn update_account(
     State(state): State<AppState>,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(claims) => claims,
         Err(resp) => return resp,
     };
@@ -409,7 +437,9 @@ pub async fn update_account(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "name exceeds maximum length".to_string(),
-                        details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+                        details: Some(
+                            json!({ "field": "name", "constraint": "max 255 characters" }),
+                        ),
                     }),
                 )
                     .into_response();
@@ -501,8 +531,21 @@ pub async fn update_account(
         ),
     );
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "account", &updated.id, "updated", &updated.owner_id, Some(&updated.name), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "account",
+        &updated.id,
+        "updated",
+        &updated.owner_id,
+        Some(&updated.name),
+        &auth_hdr,
+    )
+    .await;
 
     Json(updated).into_response()
 }
@@ -513,7 +556,7 @@ pub async fn delete_account(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(claims) => claims,
         Err(resp) => return resp,
     };
@@ -534,8 +577,21 @@ pub async fn delete_account(
 
     match result {
         Ok(result) if result.rows_affected() > 0 => {
-            let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-            emit_audit(&state.http_client, "account", &id, "deleted", &claims.sub, None, &auth_hdr).await;
+            let auth_hdr = headers
+                .get("Authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string();
+            emit_audit(
+                &state.http_client,
+                "account",
+                &id,
+                "deleted",
+                &claims.sub,
+                None,
+                &auth_hdr,
+            )
+            .await;
             crate::pipeline::delete_search_document(state.http_client.clone(), id);
             StatusCode::NO_CONTENT.into_response()
         }

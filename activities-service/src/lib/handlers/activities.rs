@@ -20,8 +20,17 @@ async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header:
         Ok(url) => url,
         Err(_) => return true, // fail-open: no accounts service configured
     };
-    let url = format!("{}/api/v1/accounts/{}", base_url.trim_end_matches('/'), account_id);
-    match client.get(&url).header("Authorization", auth_header).send().await {
+    let url = format!(
+        "{}/api/v1/accounts/{}",
+        base_url.trim_end_matches('/'),
+        account_id
+    );
+    match client
+        .get(&url)
+        .header("Authorization", auth_header)
+        .send()
+        .await
+    {
         Ok(resp) => resp.status().is_success(),
         Err(e) => {
             tracing::warn!("account validation request failed: {e}");
@@ -35,8 +44,17 @@ async fn contact_exists(client: &reqwest::Client, contact_id: &str, auth_header:
         Ok(url) => url,
         Err(_) => return true, // fail-open: no contacts service configured
     };
-    let url = format!("{}/api/v1/contacts/{}", base_url.trim_end_matches('/'), contact_id);
-    match client.get(&url).header("Authorization", auth_header).send().await {
+    let url = format!(
+        "{}/api/v1/contacts/{}",
+        base_url.trim_end_matches('/'),
+        contact_id
+    );
+    match client
+        .get(&url)
+        .header("Authorization", auth_header)
+        .send()
+        .await
+    {
         Ok(resp) => resp.status().is_success(),
         Err(e) => {
             tracing::warn!("contact validation request failed: {e}");
@@ -55,8 +73,12 @@ async fn emit_audit(
     entity_label: Option<&str>,
     auth_header: &str,
 ) {
-    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else { return };
-    if url.trim().is_empty() { return }
+    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else {
+        return;
+    };
+    if url.trim().is_empty() {
+        return;
+    }
     let body = serde_json::json!({
         "entity_type": entity_type, "entity_id": entity_id,
         "action": action, "actor_id": actor_id, "entity_label": entity_label,
@@ -102,12 +124,25 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the bearer token and requires the admin role, returning 403 otherwise
+fn require_admin(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
 pub async fn list_activities(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Activity>>, Response> {
-    let claims = require_auth(&headers)?;
-    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+    let claims = require_admin(&headers)?;
+    let is_admin = claims.has_role("admin");
 
     let q = if is_admin {
         sqlx::query_as::<_, Activity>("SELECT id, owner_id, account_id, contact_id, activity_type, subject, notes, due_at, completed, created_at, updated_at FROM activities ORDER BY created_at DESC")
@@ -132,8 +167,8 @@ pub async fn get_activity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Activity>, Response> {
-    let claims = require_auth(&headers)?;
-    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+    let claims = require_admin(&headers)?;
+    let is_admin = claims.has_role("admin");
 
     let q = if is_admin {
         sqlx::query_as::<_, Activity>(
@@ -148,7 +183,8 @@ pub async fn get_activity(
         .bind(&claims.sub)
     };
 
-    let activity = q.fetch_optional(&state.pool)
+    let activity = q
+        .fetch_optional(&state.pool)
         .await
         .map_err(|_| {
             error_response(
@@ -169,7 +205,7 @@ pub async fn create_activity(
     State(state): State<AppState>,
     Json(req): Json<CreateActivityRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let owner_id = claims.sub.clone();
 
     let activity_type = req.activity_type.trim().to_string();
@@ -192,7 +228,9 @@ pub async fn create_activity(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "subject is required".to_string(),
-                details: Some(serde_json::json!({ "field": "subject", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "subject", "constraint": "must not be empty" }),
+                ),
             }),
         )
             .into_response());
@@ -210,7 +248,9 @@ pub async fn create_activity(
                 Json(ApiError {
                     code: "INVALID_ACCOUNT".to_string(),
                     message: "referenced account does not exist".to_string(),
-                    details: Some(serde_json::json!({ "field": "account_id", "value": account_id })),
+                    details: Some(
+                        serde_json::json!({ "field": "account_id", "value": account_id }),
+                    ),
                 }),
             )
                 .into_response());
@@ -224,7 +264,9 @@ pub async fn create_activity(
                 Json(ApiError {
                     code: "INVALID_CONTACT".to_string(),
                     message: "referenced contact does not exist".to_string(),
-                    details: Some(serde_json::json!({ "field": "contact_id", "value": contact_id })),
+                    details: Some(
+                        serde_json::json!({ "field": "contact_id", "value": contact_id }),
+                    ),
                 }),
             )
                 .into_response());
@@ -287,7 +329,16 @@ pub async fn create_activity(
         ),
     );
 
-    emit_audit(&state.http_client, "activity", &created.id, "created", &owner_id, Some(&created.subject), auth_header).await;
+    emit_audit(
+        &state.http_client,
+        "activity",
+        &created.id,
+        "created",
+        &owner_id,
+        Some(&created.subject),
+        auth_header,
+    )
+    .await;
     tracing::info!(activity_id = %created.id, actor = %owner_id, "activity created");
 
     Ok((StatusCode::CREATED, Json(created)).into_response())
@@ -299,8 +350,8 @@ pub async fn update_activity(
     State(state): State<AppState>,
     Json(req): Json<UpdateActivityRequest>,
 ) -> Result<Json<Activity>, Response> {
-    let claims = require_auth(&headers)?;
-    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+    let claims = require_admin(&headers)?;
+    let is_admin = claims.has_role("admin");
 
     let existing = {
         let mut q = sqlx::query_as::<_, Activity>(
@@ -438,8 +489,21 @@ pub async fn update_activity(
         ),
     );
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "activity", &updated.id, "updated", &updated.owner_id, Some(&updated.subject), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "activity",
+        &updated.id,
+        "updated",
+        &updated.owner_id,
+        Some(&updated.subject),
+        &auth_hdr,
+    )
+    .await;
     tracing::info!(activity_id = %updated.id, actor = %claims.sub, "activity updated");
 
     Ok(Json(updated))
@@ -450,8 +514,8 @@ pub async fn delete_activity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
-    let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
+    let claims = require_admin(&headers)?;
+    let is_admin = claims.has_role("admin");
 
     let result = if is_admin {
         sqlx::query("DELETE FROM activities WHERE id = $1")
@@ -481,8 +545,21 @@ pub async fn delete_activity(
         ));
     }
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "activity", &id, "deleted", &claims.sub, None, &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "activity",
+        &id,
+        "deleted",
+        &claims.sub,
+        None,
+        &auth_hdr,
+    )
+    .await;
     crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
     tracing::info!(activity_id = %id, actor = %claims.sub, "activity deleted");
     Ok(StatusCode::NO_CONTENT)

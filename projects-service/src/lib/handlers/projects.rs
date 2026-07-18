@@ -5,8 +5,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use uuid::Uuid;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
@@ -14,7 +14,12 @@ use crate::{
     models::{ApiError, CreateProjectRequest, Project, UpdateProjectRequest},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
+fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    details: Option<serde_json::Value>,
+) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
@@ -50,7 +55,15 @@ pub async fn list_projects(
 ) -> Result<Json<Vec<Project>>, Response> {
     let claims = require_auth_with_claims(&headers)?;
 
-    let rows = if claims.has_role("client") {
+    let rows = if claims.has_role("admin") {
+        sqlx::query_as::<_, Project>(
+            "SELECT id, account_id, client_user_id, name, description, status,
+                    start_date, target_end_date, created_at, updated_at
+             FROM projects ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.pool)
+        .await
+    } else if claims.has_role("client") {
         sqlx::query_as::<_, Project>(
             "SELECT id, account_id, client_user_id, name, description, status,
                     start_date, target_end_date, created_at, updated_at
@@ -60,13 +73,12 @@ pub async fn list_projects(
         .fetch_all(&state.pool)
         .await
     } else {
-        sqlx::query_as::<_, Project>(
-            "SELECT id, account_id, client_user_id, name, description, status,
-                    start_date, target_end_date, created_at, updated_at
-             FROM projects ORDER BY created_at DESC",
-        )
-        .fetch_all(&state.pool)
-        .await
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or client role required",
+            None,
+        ));
     }
     .map_err(|_| {
         error_response(
@@ -88,6 +100,15 @@ pub async fn get_project(
 ) -> Result<Json<Project>, Response> {
     let claims = require_auth_with_claims(&headers)?;
 
+    if !claims.has_role("admin") && !claims.has_role("client") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or client role required",
+            None,
+        ));
+    }
+
     let row = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
@@ -104,9 +125,16 @@ pub async fn get_project(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "project not found",
+            None,
+        )
+    })?;
 
-    if claims.has_role("client") && row.client_user_id.as_deref() != Some(&claims.sub) {
+    if !claims.has_role("admin") && row.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
@@ -283,7 +311,14 @@ pub async fn update_project(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "project not found",
+            None,
+        )
+    })?;
 
     let name = match req.name {
         Some(v) => {

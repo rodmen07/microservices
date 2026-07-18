@@ -5,12 +5,12 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use uuid::Uuid;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::validate_authorization_header,
+    auth::{validate_authorization_header, AuthClaims},
     models::{ApiError, CreateConnectionRequest, IntegrationConnection, UpdateConnectionRequest},
 };
 
@@ -24,12 +24,24 @@ fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     (status, body).into_response()
 }
 
-// Validates the Bearer token in the request headers, returning an error response if invalid
-fn require_auth(headers: &HeaderMap) -> Result<String, Response> {
+// Validates the Bearer token in the request headers, returning the decoded claims or an error response
+fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
     let header_value = headers.get("Authorization").and_then(|v| v.to_str().ok());
     validate_authorization_header(header_value)
-        .map(|claims| claims.sub)
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
+}
+
+// Validates the Bearer token and requires the admin role, returning 403 for any non-admin caller
+fn require_admin(headers: &HeaderMap) -> Result<AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
 }
 
 // Returns all integration connections ordered by creation date descending
@@ -37,7 +49,7 @@ pub async fn list_connections(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<IntegrationConnection>>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = require_admin(&headers)?.sub;
 
     let rows = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -64,7 +76,7 @@ pub async fn get_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = require_admin(&headers)?.sub;
 
     let row = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -93,7 +105,7 @@ pub async fn create_connection(
     State(state): State<AppState>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Response, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = require_admin(&headers)?.sub;
 
     let provider = req.provider.trim().to_string();
     let account_ref = req.account_ref.trim().to_string();
@@ -106,7 +118,8 @@ pub async fn create_connection(
                 message: "provider must not be empty".to_string(),
                 details: Some(json!({ "field": "provider", "constraint": "must not be empty" })),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
     if provider.len() > 255 {
         return Err((
@@ -116,7 +129,8 @@ pub async fn create_connection(
                 message: "provider exceeds maximum length".to_string(),
                 details: Some(json!({ "field": "provider", "constraint": "max 255 characters" })),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
 
     if account_ref.is_empty() {
@@ -127,7 +141,8 @@ pub async fn create_connection(
                 message: "account_ref must not be empty".to_string(),
                 details: Some(json!({ "field": "account_ref", "constraint": "must not be empty" })),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
     if account_ref.len() > 255 {
         return Err((
@@ -135,9 +150,12 @@ pub async fn create_connection(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "account_ref exceeds maximum length".to_string(),
-                details: Some(json!({ "field": "account_ref", "constraint": "max 255 characters" })),
+                details: Some(
+                    json!({ "field": "account_ref", "constraint": "max 255 characters" }),
+                ),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
 
     let id = Uuid::new_v4().to_string();
@@ -186,7 +204,7 @@ pub async fn update_connection(
     State(state): State<AppState>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<IntegrationConnection>, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = require_admin(&headers)?.sub;
 
     let existing = sqlx::query_as::<_, IntegrationConnection>(
         "SELECT id, provider, account_ref, status, last_synced_at, created_at, updated_at
@@ -214,9 +232,12 @@ pub async fn update_connection(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "status must not be empty".to_string(),
-                        details: Some(json!({ "field": "status", "constraint": "must not be empty" })),
+                        details: Some(
+                            json!({ "field": "status", "constraint": "must not be empty" }),
+                        ),
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
             if t.len() > 255 {
                 return Err((
@@ -224,9 +245,12 @@ pub async fn update_connection(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "status exceeds maximum length".to_string(),
-                        details: Some(json!({ "field": "status", "constraint": "max 255 characters" })),
+                        details: Some(
+                            json!({ "field": "status", "constraint": "max 255 characters" }),
+                        ),
                     }),
-                ).into_response());
+                )
+                    .into_response());
             }
             t
         }
@@ -285,7 +309,7 @@ pub async fn delete_connection(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let actor = require_auth(&headers)?;
+    let actor = require_admin(&headers)?.sub;
 
     let result = sqlx::query("DELETE FROM connections WHERE id = $1")
         .bind(&id)

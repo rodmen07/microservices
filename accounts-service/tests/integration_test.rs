@@ -19,13 +19,13 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     let claims = json!({
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
     let token = encode(
         &Header::new(Algorithm::HS256),
@@ -174,12 +174,124 @@ async fn malformed_auth_header_is_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
+// ── Role gating ───────────────────────────────────────────────────────────────
+
+async fn expect_forbidden(auth: &str, method: &str, uri: &str, body: Option<Value>) {
+    let app = test_app().await;
+    let mut builder = Request::builder().method(method).uri(uri);
+    let req_body = match body {
+        Some(b) => {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+            Body::from(b.to_string())
+        }
+        None => Body::empty(),
+    };
+    let resp = app
+        .oneshot(
+            builder
+                .header(header::AUTHORIZATION, auth)
+                .body(req_body)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let resp_body = body_json(resp.into_body()).await;
+    assert_eq!(resp_body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn list_accounts_forbidden_without_admin_role() {
+    expect_forbidden(&make_jwt(&[]), "GET", "/api/v1/accounts", None).await;
+}
+
+#[tokio::test]
+async fn list_accounts_forbidden_for_client_role() {
+    expect_forbidden(&make_jwt(&["client"]), "GET", "/api/v1/accounts", None).await;
+}
+
+#[tokio::test]
+async fn get_account_forbidden_without_admin_role() {
+    expect_forbidden(&make_jwt(&[]), "GET", "/api/v1/accounts/any-id", None).await;
+}
+
+#[tokio::test]
+async fn get_account_forbidden_for_client_role() {
+    expect_forbidden(
+        &make_jwt(&["client"]),
+        "GET",
+        "/api/v1/accounts/any-id",
+        None,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn create_account_forbidden_without_admin_role() {
+    expect_forbidden(
+        &make_jwt(&[]),
+        "POST",
+        "/api/v1/accounts",
+        Some(json!({"name": "Forbidden Corp"})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn create_account_forbidden_for_client_role() {
+    expect_forbidden(
+        &make_jwt(&["client"]),
+        "POST",
+        "/api/v1/accounts",
+        Some(json!({"name": "Forbidden Corp"})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn update_account_forbidden_without_admin_role() {
+    expect_forbidden(
+        &make_jwt(&[]),
+        "PATCH",
+        "/api/v1/accounts/any-id",
+        Some(json!({"name": "X"})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn update_account_forbidden_for_client_role() {
+    expect_forbidden(
+        &make_jwt(&["client"]),
+        "PATCH",
+        "/api/v1/accounts/any-id",
+        Some(json!({"name": "X"})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn delete_account_forbidden_without_admin_role() {
+    expect_forbidden(&make_jwt(&[]), "DELETE", "/api/v1/accounts/any-id", None).await;
+}
+
+#[tokio::test]
+async fn delete_account_forbidden_for_client_role() {
+    expect_forbidden(
+        &make_jwt(&["client"]),
+        "DELETE",
+        "/api/v1/accounts/any-id",
+        None,
+    )
+    .await;
+}
+
 // ── Create ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn create_account_happy_path() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -210,7 +322,7 @@ async fn create_account_happy_path() {
 #[tokio::test]
 async fn create_account_defaults_status_to_active() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -234,7 +346,7 @@ async fn create_account_defaults_status_to_active() {
 #[tokio::test]
 async fn create_account_empty_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -257,7 +369,7 @@ async fn create_account_empty_name_is_400() {
 #[tokio::test]
 async fn create_account_invalid_status_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -285,7 +397,7 @@ async fn create_account_invalid_status_is_400() {
 #[tokio::test]
 async fn get_account_found() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -325,7 +437,7 @@ async fn get_account_found() {
 #[tokio::test]
 async fn get_account_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -348,7 +460,7 @@ async fn get_account_not_found_is_404() {
 #[tokio::test]
 async fn list_accounts_returns_paginated_response() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     for name in ["Alpha", "Beta", "Gamma"] {
         app.clone()
@@ -387,7 +499,7 @@ async fn list_accounts_returns_paginated_response() {
 #[tokio::test]
 async fn list_accounts_filter_by_status() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -439,7 +551,7 @@ async fn list_accounts_filter_by_status() {
 #[tokio::test]
 async fn list_accounts_filter_by_q() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -474,7 +586,7 @@ async fn list_accounts_filter_by_q() {
 #[tokio::test]
 async fn list_accounts_combined_status_and_q_filter() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -511,7 +623,7 @@ async fn list_accounts_combined_status_and_q_filter() {
 #[tokio::test]
 async fn list_accounts_pagination_limit_and_offset() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     for i in 0..5 {
         app.clone()
@@ -585,7 +697,7 @@ async fn list_accounts_pagination_limit_and_offset() {
 #[tokio::test]
 async fn update_account_happy_path() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -632,7 +744,7 @@ async fn update_account_happy_path() {
 #[tokio::test]
 async fn update_account_partial_preserves_unchanged_fields() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -678,7 +790,7 @@ async fn update_account_partial_preserves_unchanged_fields() {
 #[tokio::test]
 async fn update_account_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -699,7 +811,7 @@ async fn update_account_not_found_is_404() {
 #[tokio::test]
 async fn update_account_empty_name_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -740,7 +852,7 @@ async fn update_account_empty_name_is_400() {
 #[tokio::test]
 async fn update_account_invalid_status_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -783,7 +895,7 @@ async fn update_account_invalid_status_is_400() {
 #[tokio::test]
 async fn delete_account_returns_204() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -833,7 +945,7 @@ async fn delete_account_returns_204() {
 #[tokio::test]
 async fn delete_account_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(

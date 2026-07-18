@@ -56,6 +56,40 @@ fn make_admin_jwt() -> String {
     format!("Bearer {token}")
 }
 
+fn make_service_jwt() -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    let claims = json!({
+        "sub": "service-caller",
+        "iss": "auth-service",
+        "exp": 9999999999u64,
+        "roles": ["service"]
+    });
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(b"dev-insecure-secret-change-me"),
+    )
+    .unwrap();
+    format!("Bearer {token}")
+}
+
+fn make_client_jwt() -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    let claims = json!({
+        "sub": "portal-client",
+        "iss": "auth-service",
+        "exp": 9999999999u64,
+        "roles": ["client"]
+    });
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(b"dev-insecure-secret-change-me"),
+    )
+    .unwrap();
+    format!("Bearer {token}")
+}
+
 async fn body_json(body: Body) -> Value {
     let bytes = body.collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
@@ -67,7 +101,12 @@ async fn body_json(body: Body) -> Value {
 async fn health_returns_ok() {
     let app = test_app().await;
     let resp = app
-        .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -120,6 +159,24 @@ async fn list_requires_admin_role() {
 }
 
 #[tokio::test]
+async fn list_forbidden_for_client_role() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/audit-events")
+                .header(header::AUTHORIZATION, make_client_jwt())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
 async fn list_audit_events_no_auth_is_401() {
     let app = test_app().await;
     let resp = app
@@ -145,7 +202,7 @@ async fn ingest_valid_event() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "contact",
@@ -177,7 +234,7 @@ async fn ingest_invalid_entity_type_rejected() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "widget",
@@ -205,7 +262,7 @@ async fn ingest_invalid_action_rejected() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "account",
@@ -231,7 +288,7 @@ async fn ingest_missing_entity_id_rejected() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "contact",
@@ -248,6 +305,64 @@ async fn ingest_missing_entity_id_rejected() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn ingest_allows_service_role() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/audit-events")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, make_service_jwt())
+                .body(Body::from(
+                    json!({
+                        "entity_type": "contact",
+                        "entity_id": "e1e10000-0000-0000-0000-000000000002",
+                        "action": "created",
+                        "actor_id": "service-writer-001"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["entity_type"], "contact");
+    assert_eq!(body["actor_id"], "service-writer-001");
+    assert!(body["id"].is_string());
+}
+
+#[tokio::test]
+async fn ingest_forbidden_for_client_role() {
+    let app = test_app().await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/audit-events")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, make_client_jwt())
+                .body(Body::from(
+                    json!({
+                        "entity_type": "contact",
+                        "entity_id": "forged-row-attempt",
+                        "action": "created",
+                        "actor_id": "portal-client"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
 // ── List (admin) ──────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -261,7 +376,7 @@ async fn admin_can_list_events() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "account",
@@ -303,7 +418,7 @@ async fn list_events_filter_by_entity_type() {
                 .method("POST")
                 .uri("/api/v1/audit-events")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header(header::AUTHORIZATION, make_jwt())
+                .header(header::AUTHORIZATION, make_admin_jwt())
                 .body(Body::from(
                     json!({
                         "entity_type": "opportunity",
