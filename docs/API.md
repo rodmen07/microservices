@@ -83,11 +83,14 @@ Every service-generated error response uses the same JSON shape:
 
 Rate limiting is enforced at the gateway (go-gateway, shipped in v1.10), per client IP per route, using a token bucket. Requests that bypass the gateway are not rate limited and carry no rate-limit headers.
 
-| Tier | Routes | Limit |
-|------|--------|-------|
-| auth | Token issuance and auth routes | 5 rps |
-| write | POST, PATCH, DELETE on API routes | 30 rps |
-| read | GET on API routes | 60 rps |
+Tiers are assigned by route prefix, not by HTTP method (a GET under a write-tier prefix is limited at the write tier):
+
+| Tier | Route prefixes | Limit |
+|------|----------------|-------|
+| auth | `/api/auth` | 5 rps |
+| write | CRM prefixes (accounts, contacts, opportunities, activities, automation, integrations, tasks, v1/projects) | 30 rps |
+| read | reporting, search, events prefixes | 60 rps |
+| default | any other proxied route | 15 rps |
 
 Every gateway-proxied response carries:
 
@@ -95,7 +98,7 @@ Every gateway-proxied response carries:
 - `X-RateLimit-Remaining`: requests remaining in the current bucket
 - `X-RateLimit-Reset`: Unix epoch second at which the bucket refills
 
-When the limit is exceeded, the gateway returns 429 with a `Retry-After` header (seconds) and a `RATE_LIMITED` error body. Header interpretation, `Retry-After` handling, and backoff strategies will be covered in `docs/RATE_LIMITING.md`, planned for v1.16.2.
+When the limit is exceeded, the gateway returns 429 with a `Retry-After` header (seconds) and a `RATE_LIMITED` error body. Header interpretation, `Retry-After` handling, backoff strategies, and copy-paste retry snippets are covered in the [rate limiting adoption guide](RATE_LIMITING.md).
 
 ---
 
