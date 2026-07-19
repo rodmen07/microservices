@@ -5,8 +5,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use uuid::Uuid;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
@@ -17,7 +17,12 @@ use crate::{
     },
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
+fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    details: Option<serde_json::Value>,
+) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
@@ -54,6 +59,15 @@ pub async fn list_deliverables(
 ) -> Result<Json<Vec<Deliverable>>, Response> {
     let claims = require_auth_with_claims(&headers)?;
 
+    if !claims.has_role("admin") && !claims.has_role("client") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or client role required",
+            None,
+        ));
+    }
+
     // Verify milestone exists and client has access to the parent project
     let milestone = sqlx::query_as::<_, Milestone>(
         "SELECT id, project_id, name, description, due_date, status, sort_order,
@@ -71,9 +85,16 @@ pub async fn list_deliverables(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "milestone not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "milestone not found",
+            None,
+        )
+    })?;
 
-    if claims.has_role("client") {
+    if !claims.has_role("admin") {
         let project = sqlx::query_as::<_, Project>(
             "SELECT id, account_id, client_user_id, name, description, status,
                     start_date, target_end_date, created_at, updated_at
@@ -90,7 +111,14 @@ pub async fn list_deliverables(
                 None,
             )
         })?
-        .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
+        .ok_or_else(|| {
+            error_response(
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+                "project not found",
+                None,
+            )
+        })?;
 
         if project.client_user_id.as_deref() != Some(&claims.sub) {
             return Err(error_response(
@@ -148,7 +176,14 @@ pub async fn create_deliverable(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "milestone not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "milestone not found",
+            None,
+        )
+    })?;
 
     let name = req.name.trim().to_string();
     if name.is_empty() {

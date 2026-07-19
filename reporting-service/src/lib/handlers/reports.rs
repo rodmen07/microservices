@@ -5,8 +5,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use uuid::Uuid;
-use serde_json::json; // Import json! macro
+use serde_json::json;
+use uuid::Uuid; // Import json! macro
 
 use crate::{
     app_state::AppState,
@@ -34,12 +34,25 @@ fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the Bearer token and additionally requires the admin role, returning 403 otherwise
+fn require_admin(headers: &HeaderMap) -> Result<AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
 // Returns a summary of saved reports including the total count and distinct metrics in use
 pub async fn get_dashboard_summary(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<DashboardSummary>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let count = if is_admin {
@@ -137,7 +150,7 @@ pub async fn get_dashboard(
     Query(params): Query<std::collections::HashMap<String, String>>,
     State(state): State<AppState>,
 ) -> Result<Json<DashboardView>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     // Determine if this is an admin or user request.
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
@@ -241,7 +254,7 @@ pub async fn list_reports(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SavedReport>>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let rows = if is_admin {
@@ -285,7 +298,7 @@ pub async fn get_report(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SavedReport>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let row = sqlx::query_as::<_, SavedReport>(
@@ -339,58 +352,86 @@ pub async fn create_report(
     State(state): State<AppState>,
     Json(req): Json<CreateReportRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let name = req.name.trim().to_string();
     let metric = req.metric.trim().to_string();
 
     if name.is_empty() {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-            code: "VALIDATION_ERROR".to_string(),
-            message: "name must not be empty".to_string(),
-            details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
-        })).into_response());
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name must not be empty".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
     if name.len() > 255 {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-            code: "VALIDATION_ERROR".to_string(),
-            message: "name exceeds maximum length of 255 characters".to_string(),
-            details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
-        })).into_response());
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "name exceeds maximum length of 255 characters".to_string(),
+                details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response());
     }
 
     if metric.is_empty() {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-            code: "VALIDATION_ERROR".to_string(),
-            message: "metric must not be empty".to_string(),
-            details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
-        })).into_response());
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "metric must not be empty".to_string(),
+                details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
+            }),
+        )
+            .into_response());
     }
     if metric.len() > 255 {
-        return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-            code: "VALIDATION_ERROR".to_string(),
-            message: "metric exceeds maximum length of 255 characters".to_string(),
-            details: Some(json!({ "field": "metric", "constraint": "max 255 characters" })),
-        })).into_response());
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiError {
+                code: "VALIDATION_ERROR".to_string(),
+                message: "metric exceeds maximum length of 255 characters".to_string(),
+                details: Some(json!({ "field": "metric", "constraint": "max 255 characters" })),
+            }),
+        )
+            .into_response());
     }
 
     if let Some(ref description) = req.description {
         if description.len() > 1000 {
-            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "description exceeds maximum length of 1000 characters".to_string(),
-                details: Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
-            })).into_response());
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "description exceeds maximum length of 1000 characters".to_string(),
+                    details: Some(
+                        json!({ "field": "description", "constraint": "max 1000 characters" }),
+                    ),
+                }),
+            )
+                .into_response());
         }
     }
 
     if let Some(ref dimension) = req.dimension {
         if dimension.len() > 255 {
-            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "dimension exceeds maximum length of 255 characters".to_string(),
-                details: Some(json!({ "field": "dimension", "constraint": "max 255 characters" })),
-            })).into_response());
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "dimension exceeds maximum length of 255 characters".to_string(),
+                    details: Some(
+                        json!({ "field": "dimension", "constraint": "max 255 characters" }),
+                    ),
+                }),
+            )
+                .into_response());
         }
     }
 
@@ -445,9 +486,7 @@ pub async fn update_report(
     State(state): State<AppState>,
     Json(req): Json<UpdateReportRequest>,
 ) -> Result<Json<SavedReport>, Response> {
-    require_auth(&headers)?;
-
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = sqlx::query_as::<_, SavedReport>(
@@ -492,18 +531,30 @@ pub async fn update_report(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                    code: "VALIDATION_ERROR".to_string(),
-                    message: "name cannot be empty".to_string(),
-                    details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
-                })).into_response());
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name cannot be empty".to_string(),
+                        details: Some(
+                            json!({ "field": "name", "constraint": "must not be empty" }),
+                        ),
+                    }),
+                )
+                    .into_response());
             }
             if t.len() > 255 {
-                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                    code: "VALIDATION_ERROR".to_string(),
-                    message: "name exceeds maximum length of 255 characters".to_string(),
-                    details: Some(json!({ "field": "name", "constraint": "max 255 characters" })),
-                })).into_response());
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "name exceeds maximum length of 255 characters".to_string(),
+                        details: Some(
+                            json!({ "field": "name", "constraint": "max 255 characters" }),
+                        ),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -514,18 +565,30 @@ pub async fn update_report(
         Some(v) => {
             let t = v.trim().to_string();
             if t.is_empty() {
-                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                    code: "VALIDATION_ERROR".to_string(),
-                    message: "metric cannot be empty".to_string(),
-                    details: Some(json!({ "field": "metric", "constraint": "must not be empty" })),
-                })).into_response());
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "metric cannot be empty".to_string(),
+                        details: Some(
+                            json!({ "field": "metric", "constraint": "must not be empty" }),
+                        ),
+                    }),
+                )
+                    .into_response());
             }
             if t.len() > 255 {
-                return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                    code: "VALIDATION_ERROR".to_string(),
-                    message: "metric exceeds maximum length of 255 characters".to_string(),
-                    details: Some(json!({ "field": "metric", "constraint": "max 255 characters" })),
-                })).into_response());
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "VALIDATION_ERROR".to_string(),
+                        message: "metric exceeds maximum length of 255 characters".to_string(),
+                        details: Some(
+                            json!({ "field": "metric", "constraint": "max 255 characters" }),
+                        ),
+                    }),
+                )
+                    .into_response());
             }
             t
         }
@@ -535,11 +598,17 @@ pub async fn update_report(
     let mut description_to_use = existing.description.clone();
     if let Some(ref d) = req.description {
         if d.len() > 1000 {
-            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "description exceeds maximum length of 1000 characters".to_string(),
-                details: Some(json!({ "field": "description", "constraint": "max 1000 characters" })),
-            })).into_response());
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "description exceeds maximum length of 1000 characters".to_string(),
+                    details: Some(
+                        json!({ "field": "description", "constraint": "max 1000 characters" }),
+                    ),
+                }),
+            )
+                .into_response());
         }
         description_to_use = Some(d.trim().to_string());
     }
@@ -547,11 +616,17 @@ pub async fn update_report(
     let mut dimension_to_use = existing.dimension.clone();
     if let Some(ref d) = req.dimension {
         if d.len() > 255 {
-            return Err((StatusCode::UNPROCESSABLE_ENTITY, Json(ApiError {
-                code: "VALIDATION_ERROR".to_string(),
-                message: "dimension exceeds maximum length of 255 characters".to_string(),
-                details: Some(json!({ "field": "dimension", "constraint": "max 255 characters" })),
-            })).into_response());
+            return Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    code: "VALIDATION_ERROR".to_string(),
+                    message: "dimension exceeds maximum length of 255 characters".to_string(),
+                    details: Some(
+                        json!({ "field": "dimension", "constraint": "max 255 characters" }),
+                    ),
+                }),
+            )
+                .into_response());
         }
         dimension_to_use = Some(d.trim().to_string());
     }
@@ -603,7 +678,7 @@ pub async fn delete_report(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     if !is_admin {
@@ -648,7 +723,7 @@ pub async fn delete_report(
             "report not found",
         ));
     }
-    
+
     tracing::info!(report_id = %id, actor = %claims.sub, "report deleted");
     Ok(StatusCode::NO_CONTENT)
 }
@@ -659,7 +734,7 @@ pub async fn export_reports(
     Query(params): Query<ExportQuery>,
     State(state): State<AppState>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let format = params
@@ -669,11 +744,15 @@ pub async fn export_reports(
         .to_ascii_lowercase();
 
     if format != "csv" && format != "json" {
-        return Err((StatusCode::BAD_REQUEST, Json(ApiError {
-            code: "INVALID_FORMAT".to_string(),
-            message: "format must be 'csv' or 'json'".to_string(),
-            details: Some(json!({ "field": "format", "valid_values": ["csv", "json"] })),
-        })).into_response());
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiError {
+                code: "INVALID_FORMAT".to_string(),
+                message: "format must be 'csv' or 'json'".to_string(),
+                details: Some(json!({ "field": "format", "valid_values": ["csv", "json"] })),
+            }),
+        )
+            .into_response());
     }
 
     // Build dynamic query with optional filters
@@ -738,14 +817,22 @@ pub async fn export_reports(
 
     if format == "csv" {
         let mut wtr = csv::Writer::from_writer(Vec::new());
-        wtr.write_record(["id", "name", "description", "metric", "dimension", "created_at", "updated_at"])
-            .map_err(|_| {
-                error_response(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "EXPORT_ERROR",
-                    "failed to write CSV header",
-                )
-            })?;
+        wtr.write_record([
+            "id",
+            "name",
+            "description",
+            "metric",
+            "dimension",
+            "created_at",
+            "updated_at",
+        ])
+        .map_err(|_| {
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "EXPORT_ERROR",
+                "failed to write CSV header",
+            )
+        })?;
         for r in &rows {
             wtr.write_record([
                 &r.id,

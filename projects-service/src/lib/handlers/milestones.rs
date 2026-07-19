@@ -5,8 +5,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use uuid::Uuid;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
@@ -14,7 +14,12 @@ use crate::{
     models::{ApiError, CreateMilestoneRequest, Milestone, Project, UpdateMilestoneRequest},
 };
 
-fn error_response(status: StatusCode, code: &str, message: &str, details: Option<serde_json::Value>) -> Response {
+fn error_response(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    details: Option<serde_json::Value>,
+) -> Response {
     let body = Json(ApiError {
         code: code.to_string(),
         message: message.to_string(),
@@ -47,6 +52,15 @@ async fn require_project_access(
     project_id: &str,
     claims: &AuthClaims,
 ) -> Result<(), Response> {
+    if !claims.has_role("admin") && !claims.has_role("client") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or client role required",
+            None,
+        ));
+    }
+
     let project = sqlx::query_as::<_, Project>(
         "SELECT id, account_id, client_user_id, name, description, status,
                 start_date, target_end_date, created_at, updated_at
@@ -63,9 +77,16 @@ async fn require_project_access(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "project not found",
+            None,
+        )
+    })?;
 
-    if claims.has_role("client") && project.client_user_id.as_deref() != Some(&claims.sub) {
+    if !claims.has_role("admin") && project.client_user_id.as_deref() != Some(&claims.sub) {
         return Err(error_response(
             StatusCode::NOT_FOUND,
             "NOT_FOUND",
@@ -133,7 +154,14 @@ pub async fn create_milestone(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "project not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "project not found",
+            None,
+        )
+    })?;
 
     let name = req.name.trim().to_string();
     if name.is_empty() {
@@ -258,7 +286,14 @@ pub async fn update_milestone(
             None,
         )
     })?
-    .ok_or_else(|| error_response(StatusCode::NOT_FOUND, "NOT_FOUND", "milestone not found", None))?;
+    .ok_or_else(|| {
+        error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "milestone not found",
+            None,
+        )
+    })?;
 
     let name = match req.name {
         Some(v) => {
@@ -321,7 +356,10 @@ pub async fn update_milestone(
         .map(str::trim)
         .map(str::to_string)
         .or(existing.due_date);
-    let sort_order = req.sort_order.map(|v| v as i32).unwrap_or(existing.sort_order);
+    let sort_order = req
+        .sort_order
+        .map(|v| v as i32)
+        .unwrap_or(existing.sort_order);
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     sqlx::query(

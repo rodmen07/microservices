@@ -123,7 +123,7 @@ pub struct ProjectLink {
     pub link_type: String,
     pub label: String,
     pub url: String,
-    pub sort_order: i64,
+    pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -1,0 +1,802 @@
+openapi: 3.0.3
+info:
+  title: activities-service API
+  version: 1.16.1
+  description: |
+    CRM activities service for the InfraPortal platform. Rust (axum 0.8) with
+    PostgreSQL persistence. Provides CRUD operations on activities (calls,
+    emails, meetings, tasks) linked optionally to accounts and contacts, plus
+    health and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role. Requests without a valid token
+    receive 401; valid tokens without the admin role receive 403 with body
+    {"code": "FORBIDDEN", "message": "admin role required"}. Because the admin
+    role is required on every route, the owner-scoped query paths that exist in
+    the handlers are unreachable: authenticated callers always operate on all
+    activities.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Handler validation failures in this
+    service use HTTP 422 with the ApiError envelope. Framework-generated
+    rejections (malformed JSON syntax, JSON body that fails deserialization)
+    are produced by axum before the handler runs and have text/plain bodies;
+    they are documented per operation below. No route in this service takes
+    query parameters, so query-string rejections cannot occur.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://activities-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:3013"
+    description: "Local development (default HOST 0.0.0.0, default PORT 3013)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Activities
+    description: "Activity CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/activities:
+    get:
+      tags:
+        - Activities
+      summary: List activities
+      description: |
+        Returns every activity ordered by created_at descending, as a bare
+        JSON array. Unlike the other CRM services, this endpoint takes no
+        query parameters: there is no pagination, filtering, or search, and
+        there is no envelope object around the array. Requires the admin
+        role, so the caller sees all activities regardless of owner.
+        Read tier: 60 rps at the gateway.
+      operationId: listActivities
+      responses:
+        "200":
+          description: "All activities, newest first, as a JSON array (no pagination envelope)."
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Activity"
+              example:
+                - id: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+                  owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                  account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                  contact_id: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+                  activity_type: call
+                  subject: "Quarterly renewal call with Globex"
+                  notes: "Discuss the 2026 renewal terms and the open support tickets."
+                  due_at: "2026-07-25T15:00:00Z"
+                  completed: false
+                  created_at: "2026-07-18T14:30:00Z"
+                  updated_at: "2026-07-18T14:30:00Z"
+                - id: "e4d6c8a0-2b1c-4d3e-9f7a-8b6c4d2e0f1a"
+                  owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                  account_id: null
+                  contact_id: null
+                  activity_type: task
+                  subject: "Prepare onboarding checklist"
+                  notes: null
+                  due_at: null
+                  completed: true
+                  created_at: "2026-07-01T09:15:00Z"
+                  updated_at: "2026-07-10T11:00:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Activities
+      summary: Create an activity
+      description: |
+        Creates an activity owned by the caller (owner_id is taken from the
+        JWT sub claim). activity_type and subject are trimmed and must be
+        non-empty; violations return 422 with the ApiError envelope. notes and
+        due_at are stored verbatim (not trimmed) and default to null.
+        completed is always false at creation and cannot be set here.
+
+        If account_id is provided it is verified against accounts-service
+        (GET /api/v1/accounts/{id}, forwarding the caller's Authorization
+        header); likewise contact_id against contacts-service. A failed lookup
+        returns 422 with code INVALID_ACCOUNT or INVALID_CONTACT. When the
+        ACCOUNTS_SERVICE_URL or CONTACTS_SERVICE_URL environment variable is
+        unset the corresponding check is skipped entirely (fail-open); when it
+        is set but the HTTP call errors, the check fails closed and returns
+        422.
+
+        On success the service also emits an activity.created platform event,
+        indexes the activity in search-service (both fire-and-forget), and
+        emits an audit event. Write tier: 30 rps at the gateway.
+      operationId: createActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateActivityRequest"
+            example:
+              account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              contact_id: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+              activity_type: call
+              subject: "Quarterly renewal call with Globex"
+              notes: "Discuss the 2026 renewal terms and the open support tickets."
+              due_at: "2026-07-25T15:00:00Z"
+      responses:
+        "201":
+          description: Activity created.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+              example:
+                id: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                contact_id: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+                activity_type: call
+                subject: "Quarterly renewal call with Globex"
+                notes: "Discuss the 2026 renewal terms and the open support tickets."
+                due_at: "2026-07-25T15:00:00Z"
+                completed: false
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: |
+            Two distinct producers share this status. Handler validation
+            failures return the ApiError envelope (application/json):
+            VALIDATION_ERROR for a blank activity_type or subject,
+            INVALID_ACCOUNT or INVALID_CONTACT when a referenced record fails
+            the cross-service existence check. Separately, a syntactically
+            valid JSON body that fails deserialization (for example a missing
+            required field) is rejected by the axum Json extractor before the
+            handler runs, with a text/plain body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyActivityType:
+                  summary: activity_type blank after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "activity_type is required"
+                    details:
+                      field: activity_type
+                      constraint: "must not be empty"
+                emptySubject:
+                  summary: subject blank after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "subject is required"
+                    details:
+                      field: subject
+                      constraint: "must not be empty"
+                invalidAccount:
+                  summary: account_id failed the accounts-service existence check
+                  value:
+                    code: INVALID_ACCOUNT
+                    message: "referenced account does not exist"
+                    details:
+                      field: account_id
+                      value: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                invalidContact:
+                  summary: contact_id failed the contacts-service existence check
+                  value:
+                    code: INVALID_CONTACT
+                    message: "referenced contact does not exist"
+                    details:
+                      field: contact_id
+                      value: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: missing field `subject` at line 1 column 25"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/activities/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Activity ID (UUID v4 generated at creation, stored as TEXT; not re-parsed as a UUID on lookup)."
+        schema:
+          type: string
+          format: uuid
+        example: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+    get:
+      tags:
+        - Activities
+      summary: Get an activity
+      description: |
+        Fetches a single activity by ID. Returns 404 when no activity with
+        that ID exists. Read tier: 60 rps at the gateway.
+      operationId: getActivity
+      responses:
+        "200":
+          description: The requested activity.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+              example:
+                id: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                contact_id: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+                activity_type: call
+                subject: "Quarterly renewal call with Globex"
+                notes: "Discuss the 2026 renewal terms and the open support tickets."
+                due_at: "2026-07-25T15:00:00Z"
+                completed: false
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Activities
+      summary: Update an activity
+      description: |
+        Partial update. Omitted fields keep their stored values. Only
+        activity_type, subject, notes, due_at, and completed can change;
+        account_id, contact_id, and owner_id are immutable after creation.
+        activity_type or subject given as empty or whitespace is rejected with
+        422. notes and due_at are trimmed when provided; sending JSON null for
+        them is indistinguishable from omitting them (both keep the stored
+        value), and sending an empty string stores an empty string, so neither
+        field can be cleared back to null. updated_at is refreshed on success.
+        The activity is loaded before validation, so an unknown ID returns 404
+        even when the body is also invalid. On success the service also emits
+        an activity.updated platform event, re-indexes the activity in
+        search-service (both fire-and-forget), and emits an audit event.
+        Write tier: 30 rps at the gateway.
+      operationId: updateActivity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateActivityRequest"
+            example:
+              completed: true
+      responses:
+        "200":
+          description: The updated activity.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Activity"
+              example:
+                id: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                account_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                contact_id: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+                activity_type: call
+                subject: "Quarterly renewal call with Globex"
+                notes: "Discuss the 2026 renewal terms and the open support tickets."
+                due_at: "2026-07-25T15:00:00Z"
+                completed: true
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Malformed JSON syntax. Generated by the axum Json extractor before
+            the handler runs; the body is text/plain, not the ApiError
+            envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: |
+            Two distinct producers share this status. Handler validation
+            failures return the ApiError envelope (application/json) when
+            activity_type or subject is provided but blank after trimming.
+            Separately, a syntactically valid JSON body that fails
+            deserialization (every field here is optional, so in practice a
+            wrong type such as a string for completed) is rejected by the axum
+            Json extractor before the handler runs, with a text/plain body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyActivityType:
+                  summary: activity_type provided but blank after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "activity_type cannot be empty"
+                    details:
+                      field: activity_type
+                      constraint: "must not be empty"
+                emptySubject:
+                  summary: subject provided but blank after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "subject cannot be empty"
+                    details:
+                      field: subject
+                      constraint: "must not be empty"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize the JSON body into the target type: completed: invalid type: string \"yes\", expected a boolean at line 1 column 20"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Activities
+      summary: Delete an activity
+      description: |
+        Deletes an activity by ID. Returns 204 with no body on success, 404
+        when no row was deleted. On success the service also emits an audit
+        event and removes the activity from the search index
+        (fire-and-forget). No platform event is emitted for deletes.
+        Write tier: 30 rps at the gateway.
+      operationId: deleteActivity
+      responses:
+        "204":
+          description: Activity deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    Activity:
+      type: object
+      description: "A CRM activity record. IDs and timestamps are stored as TEXT. Nullable fields serialize as null, never omitted."
+      required:
+        - id
+        - owner_id
+        - account_id
+        - contact_id
+        - activity_type
+        - subject
+        - notes
+        - due_at
+        - completed
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Activity ID, a UUID v4 generated at creation."
+          example: "9c1f4b2a-6d3e-4f8a-b7c5-0e2d4a6b8c1f"
+        owner_id:
+          type: string
+          description: "ID of the owning user, taken from the JWT sub claim of the creator."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        account_id:
+          type: string
+          nullable: true
+          description: "Linked account ID, or null. Verified against accounts-service at creation; immutable afterwards."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        contact_id:
+          type: string
+          nullable: true
+          description: "Linked contact ID, or null. Verified against contacts-service at creation; immutable afterwards."
+          example: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+        activity_type:
+          type: string
+          minLength: 1
+          description: "Free-form activity type such as call, email, meeting, or task. The service only requires it to be non-empty after trimming; no enum is enforced."
+          example: call
+        subject:
+          type: string
+          minLength: 1
+          description: "Short activity subject line. Trimmed, non-empty."
+          example: "Quarterly renewal call with Globex"
+        notes:
+          type: string
+          nullable: true
+          description: "Longer free-form notes, or null."
+          example: "Discuss the 2026 renewal terms and the open support tickets."
+        due_at:
+          type: string
+          nullable: true
+          description: "Due timestamp, or null. Client-provided and stored verbatim; the platform convention is UTC %Y-%m-%dT%H:%M:%SZ but the service does not validate the format."
+          example: "2026-07-25T15:00:00Z"
+        completed:
+          type: boolean
+          description: "Whether the activity is done. Always false at creation; toggled via PATCH."
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateActivityRequest:
+      type: object
+      required:
+        - activity_type
+        - subject
+      properties:
+        account_id:
+          type: string
+          nullable: true
+          description: "Optional account to link. When ACCOUNTS_SERVICE_URL is configured the ID must resolve via accounts-service, otherwise the check is skipped."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        contact_id:
+          type: string
+          nullable: true
+          description: "Optional contact to link. When CONTACTS_SERVICE_URL is configured the ID must resolve via contacts-service, otherwise the check is skipped."
+          example: "5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d"
+        activity_type:
+          type: string
+          minLength: 1
+          description: "Activity type. Trimmed server-side; must be non-empty after trimming."
+          example: call
+        subject:
+          type: string
+          minLength: 1
+          description: "Subject line. Trimmed server-side; must be non-empty after trimming."
+          example: "Quarterly renewal call with Globex"
+        notes:
+          type: string
+          nullable: true
+          description: "Optional notes. Stored verbatim (not trimmed)."
+          example: "Discuss the 2026 renewal terms and the open support tickets."
+        due_at:
+          type: string
+          nullable: true
+          description: "Optional due timestamp. Stored verbatim without format validation; use UTC %Y-%m-%dT%H:%M:%SZ by convention."
+          example: "2026-07-25T15:00:00Z"
+    UpdateActivityRequest:
+      type: object
+      description: "Partial update. Every field is optional; omitted fields keep their stored values. account_id and contact_id cannot be changed."
+      properties:
+        activity_type:
+          type: string
+          minLength: 1
+          description: "New activity type. An empty or whitespace-only value is rejected with 422."
+          example: call
+        subject:
+          type: string
+          minLength: 1
+          description: "New subject line. An empty or whitespace-only value is rejected with 422."
+          example: "Quarterly renewal call with Globex"
+        notes:
+          type: string
+          nullable: true
+          description: "New notes, trimmed. JSON null behaves like omission (keeps the stored value); an empty string stores an empty string. Cannot be cleared back to null."
+          example: "Discuss the 2026 renewal terms and the open support tickets."
+        due_at:
+          type: string
+          nullable: true
+          description: "New due timestamp, trimmed but not format-validated. JSON null behaves like omission (keeps the stored value). Cannot be cleared back to null."
+          example: "2026-07-25T15:00:00Z"
+        completed:
+          type: boolean
+          description: "New completion flag."
+          example: true
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "subject is required"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: subject
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No activity with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "activity not found"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"

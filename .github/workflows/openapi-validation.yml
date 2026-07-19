@@ -1,0 +1,35 @@
+name: OpenAPI Validation
+
+on:
+  pull_request:
+    paths:
+      - "**/openapi.yaml"
+      - ".github/workflows/openapi-validation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**/openapi.yaml"
+      - ".github/workflows/openapi-validation.yml"
+
+jobs:
+  lint:
+    name: Lint OpenAPI specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Specs are discovered with a shell glob so future services are picked
+      # up automatically. Redocly CLI is pinned to an exact version (never
+      # latest) for reproducible runs. Its lint command exits nonzero only
+      # when errors are present; stylistic warnings are printed in the log
+      # but do not fail the job.
+      - name: Lint all service OpenAPI specs
+        run: |
+          shopt -s nullglob
+          specs=(*/openapi.yaml)
+          if [ "${#specs[@]}" -eq 0 ]; then
+            echo "No */openapi.yaml specs found; expected at least one." >&2
+            exit 1
+          fi
+          echo "Linting ${#specs[@]} spec(s): ${specs[*]}"
+          npx --yes @redocly/cli@1.25.15 lint --format=stylish "${specs[@]}"

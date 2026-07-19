@@ -11,15 +11,16 @@ use opportunities_service::{build_router, AppState};
 async fn test_app() -> axum::Router {
     std::env::set_var("AUTH_JWT_SECRET", "dev-insecure-secret-change-me");
 
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/opportunities".to_string());
+    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgres://postgres:postgres@localhost:5432/opportunities".to_string()
+    });
     let state = AppState::from_database_url(&url)
         .await
         .expect("test DB failed");
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -27,7 +28,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -78,7 +79,7 @@ async fn list_opportunities_requires_auth() {
 #[tokio::test]
 async fn create_and_get_opportunity() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -127,7 +128,7 @@ async fn create_and_get_opportunity() {
 #[tokio::test]
 async fn update_opportunity_stage() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -172,7 +173,7 @@ async fn update_opportunity_stage() {
 #[tokio::test]
 async fn delete_opportunity() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -224,7 +225,7 @@ async fn delete_opportunity() {
 #[tokio::test]
 async fn list_opportunities_returns_array() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -262,7 +263,7 @@ async fn list_opportunities_returns_array() {
 #[tokio::test]
 async fn create_opportunity_empty_name_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -285,7 +286,7 @@ async fn create_opportunity_empty_name_is_422() {
 #[tokio::test]
 async fn create_opportunity_empty_account_id_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -306,7 +307,7 @@ async fn create_opportunity_empty_account_id_is_422() {
 #[tokio::test]
 async fn update_opportunity_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -325,7 +326,7 @@ async fn update_opportunity_not_found_is_404() {
 #[tokio::test]
 async fn update_opportunity_empty_name_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -366,7 +367,7 @@ async fn update_opportunity_empty_name_is_422() {
 #[tokio::test]
 async fn delete_opportunity_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -395,4 +396,82 @@ async fn invalid_auth_token_is_401() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn list_opportunities_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&[]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/opportunities")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn list_opportunities_client_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/opportunities")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn create_opportunity_client_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&["client"]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/opportunities")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::from(
+                    json!({"account_id": "acc-403", "name": "Forbidden Deal", "amount": 1.0})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+}
+
+#[tokio::test]
+async fn delete_opportunity_without_admin_role_is_403() {
+    let app = test_app().await;
+    let auth = make_jwt(&[]);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/opportunities/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, &auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

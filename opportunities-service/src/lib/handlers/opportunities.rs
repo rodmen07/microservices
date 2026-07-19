@@ -25,8 +25,12 @@ async fn emit_audit(
     entity_label: Option<&str>,
     auth_header: &str,
 ) {
-    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else { return };
-    if url.trim().is_empty() { return }
+    let Ok(url) = std::env::var("AUDIT_SERVICE_URL") else {
+        return;
+    };
+    if url.trim().is_empty() {
+        return;
+    }
     let body = serde_json::json!({
         "entity_type": entity_type, "entity_id": entity_id,
         "action": action, "actor_id": actor_id, "entity_label": entity_label,
@@ -71,13 +75,26 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the Bearer token and requires the admin role, returning 403 when it is missing
+fn require_admin(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
 // Returns all opportunities ordered by creation date descending
 pub async fn list_opportunities(
     headers: HeaderMap,
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<Vec<Opportunity>>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let (query, qs) = if is_admin {
@@ -120,7 +137,7 @@ pub async fn get_opportunity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Opportunity>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let q = if is_admin {
@@ -153,7 +170,7 @@ pub async fn create_opportunity(
     State(state): State<AppState>,
     Json(req): Json<CreateOpportunityRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let owner_id = claims.sub.clone();
 
     let name = req.name.trim().to_string();
@@ -163,9 +180,12 @@ pub async fn create_opportunity(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "name must not be empty".to_string(),
-                details: Some(serde_json::json!({ "field": "name", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "name", "constraint": "must not be empty" }),
+                ),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
     if name.len() > 255 {
         return Err((
@@ -173,9 +193,12 @@ pub async fn create_opportunity(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "name exceeds maximum length of 255 characters".to_string(),
-                details: Some(serde_json::json!({ "field": "name", "constraint": "max 255 characters" })),
+                details: Some(
+                    serde_json::json!({ "field": "name", "constraint": "max 255 characters" }),
+                ),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
 
     let account_id = req.account_id.trim().to_string();
@@ -185,9 +208,12 @@ pub async fn create_opportunity(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "account_id must not be empty".to_string(),
-                details: Some(serde_json::json!({ "field": "account_id", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "account_id", "constraint": "must not be empty" }),
+                ),
             }),
-        ).into_response());
+        )
+            .into_response());
     }
     if account_id.len() > 255 {
         return Err((
@@ -262,8 +288,21 @@ pub async fn create_opportunity(
         ),
     );
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "opportunity", &created.id, "created", &owner_id, Some(&created.name), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "opportunity",
+        &created.id,
+        "created",
+        &owner_id,
+        Some(&created.name),
+        &auth_hdr,
+    )
+    .await;
 
     tracing::info!(opportunity_id = %created.id, actor = %claims.sub, opportunity_name = %created.name, "opportunity created");
     Ok((StatusCode::CREATED, Json(created)).into_response())
@@ -276,7 +315,7 @@ pub async fn update_opportunity(
     State(state): State<AppState>,
     Json(req): Json<UpdateOpportunityRequest>,
 ) -> Result<Json<Opportunity>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let existing = {
@@ -415,8 +454,21 @@ pub async fn update_opportunity(
         ),
     );
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "opportunity", &updated.id, "updated", &updated.owner_id, Some(&updated.name), &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "opportunity",
+        &updated.id,
+        "updated",
+        &updated.owner_id,
+        Some(&updated.name),
+        &auth_hdr,
+    )
+    .await;
 
     tracing::info!(opportunity_id = %updated.id, actor = %claims.sub, opportunity_name = %updated.name, "opportunity updated");
     Ok(Json(updated))
@@ -428,7 +480,7 @@ pub async fn delete_opportunity(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let is_admin = claims.roles.iter().any(|r| r.eq_ignore_ascii_case("admin"));
 
     let result = if is_admin {
@@ -459,8 +511,21 @@ pub async fn delete_opportunity(
         ));
     }
 
-    let auth_hdr = headers.get("Authorization").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    emit_audit(&state.http_client, "opportunity", &id, "deleted", &claims.sub, None, &auth_hdr).await;
+    let auth_hdr = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    emit_audit(
+        &state.http_client,
+        "opportunity",
+        &id,
+        "deleted",
+        &claims.sub,
+        None,
+        &auth_hdr,
+    )
+    .await;
     crate::pipeline::delete_search_document(state.http_client.clone(), id.clone());
 
     tracing::info!(opportunity_id = %id, actor = %claims.sub, "opportunity deleted");
