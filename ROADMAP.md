@@ -97,6 +97,8 @@ Theme 3 (Portal UX) rescoped for the decommission: frontend-only against a clear
 
 Second Theme 3 slice using the same mocked-API pattern; keeps the one-minor-per-week cadence with small increments. Full scope and done-when in `d:/Projects/Portfolio/infraportal/ROADMAP.md`.
 
+After v1.16.5: the proposed v1.17 theme (Interactive API Playground) is drafted in [`docs/design/V1_17_THEME.md`](docs/design/V1_17_THEME.md) and is gated on user review; no v1.17.x item is doable-now until the user approves it.
+
 ---
 
 ## Later / candidates (not scheduled)
