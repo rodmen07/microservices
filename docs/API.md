@@ -79,6 +79,8 @@ Every service-generated error response uses the same JSON shape:
 
 ---
 
+**Interactive playground:** every spec below is rendered and explorable (with executable demo requests, copyable snippets, and per-operation deep links) at the portfolio site's API Docs page: https://rodmen07.github.io/infraportal/#/api-docs
+
 ## Rate limits
 
 Rate limiting is enforced at the gateway (go-gateway, shipped in v1.10), per client IP per route, using a token bucket. Requests that bypass the gateway are not rate limited and carry no rate-limit headers.
