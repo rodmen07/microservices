@@ -3,8 +3,22 @@ name: CI/CD
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "postman/**"
+      - "sdks/**"
+      - "**/openapi.yaml"
+      - ".github/workflows/openapi-validation.yml"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "postman/**"
+      - "sdks/**"
+      - "**/openapi.yaml"
+      - ".github/workflows/openapi-validation.yml"
   workflow_dispatch:
 
 env:
