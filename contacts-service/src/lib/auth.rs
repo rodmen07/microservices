@@ -12,6 +12,13 @@ pub struct AuthClaims {
     pub roles: Vec<String>,
 }
 
+impl AuthClaims {
+    // Returns true if the claims include the given role (case-insensitive)
+    pub fn has_role(&self, role: &str) -> bool {
+        self.roles.iter().any(|r| r.eq_ignore_ascii_case(role))
+    }
+}
+
 #[derive(Debug)]
 pub enum AuthError {
     MissingHeader,

@@ -1,9 +1,8 @@
 use std::{env, net::SocketAddr};
 
-use search_service::{build_router, AppState};
 use opentelemetry::global;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
-use tracing_subscriber::layer::SubscriberExt;
+use search_service::{build_router, AppState};
 
 #[tokio::main]
 // Initialises tracing with OpenTelemetry, reads environment config,
@@ -19,7 +18,9 @@ async fn main() {
                 let subscriber = tracing_subscriber::fmt()
                     .with_env_filter(env_filter)
                     .finish();
-                tracing::subscriber::set_default(subscriber);
+                if tracing::subscriber::set_global_default(subscriber).is_err() {
+                    eprintln!("failed to set global tracing subscriber");
+                }
             } else {
                 eprintln!("Failed to install OpenTelemetry tracer");
                 init_basic_tracing("search_service");
@@ -75,5 +76,7 @@ fn init_basic_tracing(service_name: &str) {
                 .unwrap_or_else(|_| format!("{service_name}=info,tower_http=info").into()),
         )
         .finish();
-    tracing::subscriber::set_default(subscriber);
+    if tracing::subscriber::set_global_default(subscriber).is_err() {
+        eprintln!("failed to set global tracing subscriber");
+    }
 }

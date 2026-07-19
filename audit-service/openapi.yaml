@@ -1,0 +1,822 @@
+openapi: 3.0.3
+info:
+  title: audit-service API
+  version: 1.16.1
+  description: |
+    Immutable audit trail service for the InfraPortal platform. Rust (axum 0.8)
+    with PostgreSQL persistence. CRM services forward mutation events here;
+    admins query the resulting append-only log. Provides audit event ingestion
+    and listing plus health and readiness probes. There are no update or delete
+    routes: audit events are write-once.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: both /api/v1 routes validate a bearer JWT in the handler.
+    Requests without a valid token receive 401. Role requirements differ per
+    operation: GET /api/v1/audit-events requires the "admin" role (403 body
+    {"code": "FORBIDDEN", "message": "admin role required"});
+    POST /api/v1/audit-events accepts either the "admin" or the "service" role
+    (403 body {"code": "FORBIDDEN", "message": "admin or service role
+    required"}). CRM services forward the caller's admin token; the "service"
+    role covers machine writers. /health and /ready are unauthenticated.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Framework-generated rejections (malformed
+    JSON, JSON body that fails deserialization, invalid query string types) are
+    produced by axum before the handler runs and have text/plain bodies; they
+    are documented per operation below. Note that this service also generates
+    handler-level 422 responses in the ApiError envelope when entity_type or
+    action is not in the accepted set.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://audit-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:8080"
+    description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Audit Events
+    description: |
+      Audit event ingestion and query. Listing requires a bearer JWT with the
+      admin role; ingestion requires the admin or the service role.
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/audit-events:
+    get:
+      tags:
+        - Audit Events
+      summary: List audit events
+      description: |
+        Returns a paginated list of audit events ordered by created_at
+        descending, then id descending. Supports exact-match filtering on
+        entity_type, entity_id, actor_id, and action, plus inclusive
+        created_at range bounds (created_after, created_before). Filter values
+        are compared exactly and case-sensitively against stored values;
+        entity_type and action are stored lowercased, so pass lowercase
+        values. Requires the admin role (the service role is NOT sufficient
+        for listing). Read tier: 60 rps at the gateway.
+      operationId: listAuditEvents
+      parameters:
+        - name: entity_type
+          in: query
+          required: false
+          description: |
+            Exact match on entity_type. Stored values are lowercase; the
+            filter value is not validated against the accepted set, so an
+            unknown or wrongly cased value simply matches nothing.
+          schema:
+            type: string
+          example: account
+        - name: entity_id
+          in: query
+          required: false
+          description: "Exact match on the audited entity's ID."
+          schema:
+            type: string
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        - name: actor_id
+          in: query
+          required: false
+          description: "Exact match on the acting user's ID."
+          schema:
+            type: string
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        - name: action
+          in: query
+          required: false
+          description: |
+            Exact match on action. Stored values are lowercase (created,
+            updated, deleted); the filter value is not validated, so an
+            unknown value simply matches nothing.
+          schema:
+            type: string
+          example: created
+        - name: created_after
+          in: query
+          required: false
+          description: |
+            Inclusive lower bound on created_at (created_at >= value).
+            Timestamps are stored as TEXT in %Y-%m-%dT%H:%M:%SZ format and
+            compared lexicographically, so the value must use the same format
+            to be meaningful.
+          schema:
+            type: string
+            format: date-time
+          example: "2026-07-01T00:00:00Z"
+        - name: created_before
+          in: query
+          required: false
+          description: |
+            Inclusive upper bound on created_at (created_at <= value). Same
+            TEXT lexicographic comparison caveat as created_after.
+          schema:
+            type: string
+            format: date-time
+          example: "2026-07-18T23:59:59Z"
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum number of rows to return. Defaults to 50. Values are
+            clamped to the range 1 to 200 rather than rejected. Parsed as an
+            unsigned integer, so negative values are rejected with 400 by the
+            axum Query extractor.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: |
+            Number of rows to skip. Defaults to 0. Parsed as an unsigned
+            integer, so negative values are rejected with 400 by the axum
+            Query extractor.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Paginated audit event list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAuditEventsResponse"
+              example:
+                data:
+                  - id: "9c1f4b7a-2d3e-4f5a-8b6c-7d8e9f0a1b2c"
+                    entity_type: account
+                    entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                    action: created
+                    actor_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    entity_label: "Globex Corporation"
+                    payload: "{\"name\":\"Globex Corporation\",\"status\":\"active\"}"
+                    created_at: "2026-07-18T14:30:00Z"
+                  - id: "5e8d0c2b-6a4f-4d1e-9b3a-0c7f2e5d8a1b"
+                    entity_type: contact
+                    entity_id: "b2c4d6e8-0a1b-4c3d-8e5f-6a7b8c9d0e1f"
+                    action: updated
+                    actor_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    entity_label: null
+                    payload: null
+                    created_at: "2026-07-17T09:15:00Z"
+                total: 2
+                limit: 50
+                offset: 0
+        "400":
+          description: |
+            Invalid query string, for example limit=abc or limit=-1. Generated
+            by the axum Query extractor before the handler runs; the body is
+            text/plain, not the ApiError envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize query string: limit: invalid digit found in string"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenAdmin"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Audit Events
+      summary: Ingest an audit event
+      description: |
+        Records a single immutable audit event. Requires the admin or the
+        service role. entity_type, entity_id, action, and actor_id are
+        required, trimmed, and limited to 255 characters. entity_type and
+        action are matched case-insensitively against fixed sets (entity_type:
+        account, contact, opportunity, activity; action: created, updated,
+        deleted) and stored lowercased; a trimmed non-empty value outside the
+        set is rejected with a handler-generated 422 in the ApiError envelope.
+        entity_label is optional; a blank or whitespace-only value is stored
+        as null. payload accepts any JSON value; it is serialized to a compact
+        JSON string for storage and is returned as that string, not as the
+        original JSON structure. The service generates the event id (UUID v4)
+        and created_at (UTC, second precision); clients cannot supply them.
+        On success, when OBSERVABOARD_INGEST_URL and OBSERVABOARD_API_KEY are
+        configured, the event is also forwarded to Observaboard
+        (fire-and-forget; forwarding failures never affect the response).
+        Write tier: 30 rps at the gateway.
+      operationId: ingestAuditEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAuditEventRequest"
+            example:
+              entity_type: account
+              entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+              action: created
+              actor_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+              entity_label: "Globex Corporation"
+              payload:
+                name: "Globex Corporation"
+                status: active
+      responses:
+        "201":
+          description: |
+            Audit event recorded. entity_type and action are returned
+            lowercased; payload is returned as a JSON-encoded string.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEvent"
+              example:
+                id: "9c1f4b7a-2d3e-4f5a-8b6c-7d8e9f0a1b2c"
+                entity_type: account
+                entity_id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                action: created
+                actor_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                entity_label: "Globex Corporation"
+                payload: "{\"name\":\"Globex Corporation\",\"status\":\"active\"}"
+                created_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Validation failure (ApiError envelope) for an empty-after-trimming
+            or over-length field, or malformed JSON syntax (text/plain,
+            generated by the axum Json extractor before the handler runs).
+            Fields are validated in order (entity_type, action, entity_id,
+            actor_id, entity_label), so only the first failure is reported.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyEntityType:
+                  summary: entity_type empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "entity_type must not be empty"
+                    details:
+                      field: entity_type
+                      constraint: "must not be empty"
+                entityTypeTooLong:
+                  summary: entity_type longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "entity_type exceeds maximum length"
+                    details:
+                      field: entity_type
+                      constraint: "max 255 characters"
+                emptyAction:
+                  summary: action empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "action must not be empty"
+                    details:
+                      field: action
+                      constraint: "must not be empty"
+                actionTooLong:
+                  summary: action longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "action exceeds maximum length"
+                    details:
+                      field: action
+                      constraint: "max 255 characters"
+                emptyEntityId:
+                  summary: entity_id empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "entity_id must not be empty"
+                    details:
+                      field: entity_id
+                      constraint: "must not be empty"
+                entityIdTooLong:
+                  summary: entity_id longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "entity_id exceeds maximum length"
+                    details:
+                      field: entity_id
+                      constraint: "max 255 characters"
+                emptyActorId:
+                  summary: actor_id empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "actor_id must not be empty"
+                    details:
+                      field: actor_id
+                      constraint: "must not be empty"
+                actorIdTooLong:
+                  summary: actor_id longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "actor_id exceeds maximum length"
+                    details:
+                      field: actor_id
+                      constraint: "max 255 characters"
+                entityLabelTooLong:
+                  summary: entity_label longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "entity_label exceeds maximum length"
+                    details:
+                      field: entity_label
+                      constraint: "max 255 characters"
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenAdminOrService"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for GET /api/v1/audit-events, and "admin" or "service"
+        for POST /api/v1/audit-events.
+  schemas:
+    AuditEvent:
+      type: object
+      description: |
+        An immutable audit event record. IDs and timestamps are stored as
+        TEXT. entity_label and payload are serialized as null when absent,
+        never omitted.
+      required:
+        - id
+        - entity_type
+        - entity_id
+        - action
+        - actor_id
+        - entity_label
+        - payload
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Audit event ID, a UUID v4 generated at ingestion."
+          example: "9c1f4b7a-2d3e-4f5a-8b6c-7d8e9f0a1b2c"
+        entity_type:
+          type: string
+          enum:
+            - account
+            - contact
+            - opportunity
+            - activity
+          description: "Type of the audited entity. Always stored and returned lowercase."
+          example: account
+        entity_id:
+          type: string
+          maxLength: 255
+          description: "ID of the audited entity, as supplied by the writing service (trimmed)."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        action:
+          type: string
+          enum:
+            - created
+            - updated
+            - deleted
+          description: "Mutation performed on the entity. Always stored and returned lowercase."
+          example: created
+        actor_id:
+          type: string
+          maxLength: 255
+          description: "ID of the user who performed the mutation (trimmed)."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        entity_label:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: "Human-readable label for the entity. Null when not supplied or blank."
+          example: "Globex Corporation"
+        payload:
+          type: string
+          nullable: true
+          description: |
+            JSON-encoded string of the payload supplied at ingestion (the
+            original JSON value serialized compactly), or null when no payload
+            was supplied. Note this is a string, not a nested JSON object.
+          example: "{\"name\":\"Globex Corporation\",\"status\":\"active\"}"
+        created_at:
+          type: string
+          format: date-time
+          description: "Ingestion timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateAuditEventRequest:
+      type: object
+      required:
+        - entity_type
+        - entity_id
+        - action
+        - actor_id
+      properties:
+        entity_type:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: |
+            Type of the audited entity. Trimmed server-side and matched
+            case-insensitively against the accepted set (account, contact,
+            opportunity, activity); stored lowercased. Values outside the set
+            are rejected with 422.
+          example: account
+        entity_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "ID of the audited entity. Trimmed; must be non-empty after trimming."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        action:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: |
+            Mutation performed. Trimmed server-side and matched
+            case-insensitively against the accepted set (created, updated,
+            deleted); stored lowercased. Values outside the set are rejected
+            with 422.
+          example: created
+        actor_id:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "ID of the user who performed the mutation. Trimmed; must be non-empty after trimming."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        entity_label:
+          type: string
+          nullable: true
+          maxLength: 255
+          description: |
+            Optional human-readable label. Trimmed; blank or whitespace-only
+            values are stored as null. At most 255 characters when present.
+          example: "Globex Corporation"
+        payload:
+          description: |
+            Optional arbitrary JSON value with mutation context, may be null
+            or omitted. Accepted as any JSON type, serialized to a compact
+            JSON string for storage, and returned as that string in
+            responses. No length limit is enforced.
+          example:
+            name: "Globex Corporation"
+            status: active
+    ListAuditEventsQuery:
+      type: object
+      description: "Query parameters accepted by listAuditEvents, shown here for reference."
+      properties:
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        created_after:
+          type: string
+          format: date-time
+        created_before:
+          type: string
+          format: date-time
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 50
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+    ListAuditEventsResponse:
+      type: object
+      required:
+        - data
+        - total
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        total:
+          type: integer
+          format: int64
+          description: "Total number of rows matching the filters, ignoring pagination."
+          example: 2
+        limit:
+          type: integer
+          description: "Effective limit after clamping to the range 1 to 200."
+          example: 50
+        offset:
+          type: integer
+          description: "Effective offset applied to the query."
+          example: 0
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "entity_type must not be empty"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: entity_type
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    ForbiddenAdmin:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    ForbiddenAdminOrService:
+      description: "Token is valid but the roles claim includes neither admin nor service."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin or service role required"
+    UnprocessableEntity:
+      description: |
+        Two distinct sources share this status. Handler-generated (ApiError
+        envelope, application/json): the trimmed entity_type or action is not
+        in its accepted set. Framework-generated (text/plain): the JSON body
+        parsed but failed deserialization into the request type, for example
+        a missing required field or a wrong type, produced by the axum Json
+        extractor before the handler runs.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            invalidEntityType:
+              summary: entity_type not in the accepted set
+              value:
+                code: VALIDATION_ERROR
+                message: "invalid entity_type"
+                details:
+                  field: entity_type
+                  valid_values:
+                    - account
+                    - contact
+                    - opportunity
+                    - activity
+            invalidAction:
+              summary: action not in the accepted set
+              value:
+                code: VALIDATION_ERROR
+                message: "invalid action"
+                details:
+                  field: action
+                  valid_values:
+                    - created
+                    - updated
+                    - deleted
+        text/plain:
+          schema:
+            type: string
+          example: "Failed to deserialize the JSON body into the target type: missing field `entity_type` at line 1 column 2"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"

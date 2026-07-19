@@ -36,7 +36,21 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
-// Ingests a new audit event; any valid JWT may call this (CRM services forward the caller's token)
+// Rejects callers whose claims carry neither the admin nor the service role
+fn require_admin_or_service(claims: &crate::auth::AuthClaims) -> Result<(), Response> {
+    if claims.has_role("admin") || claims.has_role("service") {
+        Ok(())
+    } else {
+        Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or service role required",
+        ))
+    }
+}
+
+// Ingests a new audit event; admin or service role required (CRM services forward the caller's
+// admin token; role "service" covers machine writers like the search write-through pattern)
 pub async fn ingest_audit_event(
     headers: HeaderMap,
     State(state): State<AppState>,
@@ -46,6 +60,10 @@ pub async fn ingest_audit_event(
         Ok(c) => c,
         Err(resp) => return resp,
     };
+
+    if let Err(resp) = require_admin_or_service(&claims) {
+        return resp;
+    }
 
     let entity_type = body.entity_type.trim().to_string();
     if entity_type.is_empty() {
@@ -90,7 +108,9 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "action must not be empty".to_string(),
-                details: Some(serde_json::json!({ "field": "action", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "action", "constraint": "must not be empty" }),
+                ),
             }),
         )
             .into_response();
@@ -101,7 +121,9 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "action exceeds maximum length".to_string(),
-                details: Some(serde_json::json!({ "field": "action", "constraint": "max 255 characters" })),
+                details: Some(
+                    serde_json::json!({ "field": "action", "constraint": "max 255 characters" }),
+                ),
             }),
         )
             .into_response();
@@ -113,7 +135,9 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "invalid action".to_string(),
-                details: Some(serde_json::json!({ "field": "action", "valid_values": VALID_ACTIONS })),
+                details: Some(
+                    serde_json::json!({ "field": "action", "valid_values": VALID_ACTIONS }),
+                ),
             }),
         )
             .into_response();
@@ -126,23 +150,27 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "entity_id must not be empty".to_string(),
-                details: Some(serde_json::json!({ "field": "entity_id", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "entity_id", "constraint": "must not be empty" }),
+                ),
             }),
         )
             .into_response();
     }
-    if entity_id.len() > 255 { // Assuming max length for IDs is 255
+    if entity_id.len() > 255 {
+        // Assuming max length for IDs is 255
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "entity_id exceeds maximum length".to_string(),
-                details: Some(serde_json::json!({ "field": "entity_id", "constraint": "max 255 characters" })),
+                details: Some(
+                    serde_json::json!({ "field": "entity_id", "constraint": "max 255 characters" }),
+                ),
             }),
         )
             .into_response();
     }
-
 
     let actor_id = body.actor_id.trim().to_string();
     if actor_id.is_empty() {
@@ -151,27 +179,38 @@ pub async fn ingest_audit_event(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "actor_id must not be empty".to_string(),
-                details: Some(serde_json::json!({ "field": "actor_id", "constraint": "must not be empty" })),
+                details: Some(
+                    serde_json::json!({ "field": "actor_id", "constraint": "must not be empty" }),
+                ),
             }),
         )
             .into_response();
     }
-    if actor_id.len() > 255 { // Assuming max length for IDs is 255
+    if actor_id.len() > 255 {
+        // Assuming max length for IDs is 255
         return (
             StatusCode::BAD_REQUEST,
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "actor_id exceeds maximum length".to_string(),
-                details: Some(serde_json::json!({ "field": "actor_id", "constraint": "max 255 characters" })),
+                details: Some(
+                    serde_json::json!({ "field": "actor_id", "constraint": "max 255 characters" }),
+                ),
             }),
         )
             .into_response();
     }
 
-    let entity_label = body.entity_label.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let entity_label = body
+        .entity_label
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     // Add length validation for entity_label if it's present
     if let Some(label) = &entity_label {
-        if label.len() > 255 { // Assuming max length for labels is 255
+        if label.len() > 255 {
+            // Assuming max length for labels is 255
             return (
                 StatusCode::BAD_REQUEST,
                 Json(ApiError {
@@ -352,7 +391,11 @@ pub async fn list_audit_events(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("list_audit_events db error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     };
 
@@ -360,7 +403,11 @@ pub async fn list_audit_events(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("list_audit_events count error: {e}");
-            return error_response(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", "database error");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "DB_ERROR",
+                "database error",
+            );
         }
     };
 

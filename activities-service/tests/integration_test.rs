@@ -19,7 +19,7 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -27,7 +27,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -80,7 +80,7 @@ async fn list_activities_requires_auth() {
 #[tokio::test]
 async fn create_and_list_activity() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     // Create
     let create_resp = app
@@ -132,7 +132,7 @@ async fn create_and_list_activity() {
 #[tokio::test]
 async fn update_activity_completed() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -176,7 +176,7 @@ async fn update_activity_completed() {
 #[tokio::test]
 async fn delete_activity() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -228,7 +228,7 @@ async fn delete_activity() {
 #[tokio::test]
 async fn get_activity_found() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -270,7 +270,7 @@ async fn get_activity_found() {
 #[tokio::test]
 async fn get_activity_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -287,7 +287,7 @@ async fn get_activity_not_found_is_404() {
 #[tokio::test]
 async fn create_activity_missing_required_fields_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -311,7 +311,7 @@ async fn create_activity_missing_required_fields_is_422() {
 #[tokio::test]
 async fn update_activity_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -330,7 +330,7 @@ async fn update_activity_not_found_is_404() {
 #[tokio::test]
 async fn update_activity_empty_type_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -370,7 +370,7 @@ async fn update_activity_empty_type_is_422() {
 #[tokio::test]
 async fn delete_activity_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -452,7 +452,7 @@ async fn delete_activity_requires_auth() {
 #[tokio::test]
 async fn create_activity_invalid_json_body_is_400() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let resp = app
         .oneshot(
@@ -470,9 +470,122 @@ async fn create_activity_invalid_json_body_is_400() {
 }
 
 #[tokio::test]
+async fn list_activities_forbidden_for_non_admin() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activities")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn get_activity_forbidden_for_non_admin() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn create_activity_forbidden_for_non_admin() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/activities")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::from(
+                        json!({"activity_type": "call", "subject": "Should be rejected"})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn update_activity_forbidden_for_non_admin() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::from(json!({"completed": true}).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
+async fn delete_activity_forbidden_for_non_admin() {
+    let app = test_app().await;
+    for auth in [make_jwt(&[]), make_jwt(&["client"])] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/v1/activities/00000000-0000-0000-0000-000000000000")
+                    .header(header::AUTHORIZATION, &auth)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = body_json(resp.into_body()).await;
+        assert_eq!(body["code"], "FORBIDDEN");
+    }
+}
+
+#[tokio::test]
 async fn update_activity_empty_subject_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()

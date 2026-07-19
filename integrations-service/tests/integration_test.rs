@@ -19,7 +19,7 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+fn make_jwt(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -27,7 +27,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -78,7 +78,7 @@ async fn list_connections_requires_auth() {
 #[tokio::test]
 async fn create_and_get_connection() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -119,7 +119,7 @@ async fn create_and_get_connection() {
 #[tokio::test]
 async fn update_connection_status() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -167,7 +167,7 @@ async fn update_connection_status() {
 #[tokio::test]
 async fn delete_connection() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -219,7 +219,7 @@ async fn delete_connection() {
 #[tokio::test]
 async fn list_connections_returns_array() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     app.clone()
         .oneshot(
@@ -257,7 +257,7 @@ async fn list_connections_returns_array() {
 #[tokio::test]
 async fn create_connection_missing_provider_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -280,7 +280,7 @@ async fn create_connection_missing_provider_is_422() {
 #[tokio::test]
 async fn create_connection_empty_account_ref_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -300,11 +300,10 @@ async fn create_connection_empty_account_ref_is_422() {
     assert_eq!(body["code"], "VALIDATION_ERROR");
 }
 
-
 #[tokio::test]
 async fn get_connection_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -321,7 +320,7 @@ async fn get_connection_not_found_is_404() {
 #[tokio::test]
 async fn update_connection_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -340,7 +339,7 @@ async fn update_connection_not_found_is_404() {
 #[tokio::test]
 async fn update_connection_empty_status_is_422() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
 
     let create_resp = app
         .clone()
@@ -380,7 +379,7 @@ async fn update_connection_empty_status_is_422() {
 #[tokio::test]
 async fn delete_connection_not_found_is_404() {
     let app = test_app().await;
-    let auth = make_jwt();
+    let auth = make_jwt(&["admin"]);
     let resp = app
         .oneshot(
             Request::builder()
@@ -414,7 +413,9 @@ async fn invalid_auth_token_is_401() {
     assert_eq!(resp_list.status(), StatusCode::UNAUTHORIZED);
 
     // Test on create endpoint
-    let resp_create = app.clone().oneshot(
+    let resp_create = app
+        .clone()
+        .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/integrations/connections")
@@ -430,7 +431,9 @@ async fn invalid_auth_token_is_401() {
     assert_eq!(resp_create.status(), StatusCode::UNAUTHORIZED);
 
     // Test on get endpoint
-    let resp_get = app.clone().oneshot(
+    let resp_get = app
+        .clone()
+        .oneshot(
             Request::builder()
                 .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
                 .header(header::AUTHORIZATION, "Bearer garbage.token.here")
@@ -442,7 +445,9 @@ async fn invalid_auth_token_is_401() {
     assert_eq!(resp_get.status(), StatusCode::UNAUTHORIZED);
 
     // Test on update endpoint
-    let resp_update = app.clone().oneshot(
+    let resp_update = app
+        .clone()
+        .oneshot(
             Request::builder()
                 .method("PATCH")
                 .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
@@ -456,7 +461,8 @@ async fn invalid_auth_token_is_401() {
     assert_eq!(resp_update.status(), StatusCode::UNAUTHORIZED);
 
     // Test on delete endpoint
-    let resp_delete = app.oneshot(
+    let resp_delete = app
+        .oneshot(
             Request::builder()
                 .method("DELETE")
                 .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
@@ -467,4 +473,99 @@ async fn invalid_auth_token_is_401() {
         .await
         .unwrap();
     assert_eq!(resp_delete.status(), StatusCode::UNAUTHORIZED);
+}
+
+// Drives all five connection routes with the given token and asserts each returns 403 FORBIDDEN
+async fn assert_all_routes_forbidden(auth: &str) {
+    let app = test_app().await;
+
+    // Test on list endpoint (also asserts the error envelope code)
+    let resp_list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/integrations/connections")
+                .header(header::AUTHORIZATION, auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_list.status(), StatusCode::FORBIDDEN);
+    let body = body_json(resp_list.into_body()).await;
+    assert_eq!(body["code"], "FORBIDDEN");
+
+    // Test on create endpoint
+    let resp_create = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/integrations/connections")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, auth)
+                .body(Body::from(
+                    json!({ "provider": "salesforce", "account_ref": "sf-403" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_create.status(), StatusCode::FORBIDDEN);
+
+    // Test on get endpoint
+    let resp_get = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_get.status(), StatusCode::FORBIDDEN);
+
+    // Test on update endpoint
+    let resp_update = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, auth)
+                .body(Body::from(json!({ "status": "connected" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_update.status(), StatusCode::FORBIDDEN);
+
+    // Test on delete endpoint
+    let resp_delete = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/integrations/connections/00000000-0000-0000-0000-000000000000")
+                .header(header::AUTHORIZATION, auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp_delete.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn empty_roles_token_is_403_on_all_routes() {
+    let auth = make_jwt(&[]);
+    assert_all_routes_forbidden(&auth).await;
+}
+
+#[tokio::test]
+async fn client_role_token_is_403_on_all_routes() {
+    let auth = make_jwt(&["client"]);
+    assert_all_routes_forbidden(&auth).await;
 }

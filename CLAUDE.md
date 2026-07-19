@@ -232,6 +232,8 @@ Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
 
 ## Roadmap
 
+**Forward plan (v1.16.0 and later): see `ROADMAP.md` in this repo, canonical since 2026-07-18; the tables below are history through v1.15.10.**
+
 ### v0.4 — Language Breadth & AI Depth ✅ Complete
 
 | Sub-version | Feature | Completion State |

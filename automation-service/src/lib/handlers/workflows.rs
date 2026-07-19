@@ -31,12 +31,25 @@ fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the Bearer token and requires the "admin" role, returning 403 if the caller lacks it
+fn require_admin(headers: &HeaderMap) -> Result<AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role("admin") {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
 // Returns all workflows ordered by creation date descending
 pub async fn list_workflows(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Workflow>>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let actor = claims.sub;
 
     let rows = sqlx::query_as::<_, Workflow>(
@@ -64,7 +77,7 @@ pub async fn get_workflow(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<Workflow>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let actor = claims.sub;
 
     let row = sqlx::query_as::<_, Workflow>(
@@ -94,7 +107,7 @@ pub async fn create_workflow(
     State(state): State<AppState>,
     Json(req): Json<CreateWorkflowRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let actor = claims.sub;
 
     let name = req.name.trim().to_string();
@@ -119,7 +132,9 @@ pub async fn create_workflow(
             Json(ApiError {
                 code: "VALIDATION_ERROR".to_string(),
                 message: "trigger_event is required".to_string(),
-                details: Some(json!({ "field": "trigger_event", "constraint": "must not be empty" })),
+                details: Some(
+                    json!({ "field": "trigger_event", "constraint": "must not be empty" }),
+                ),
             }),
         )
             .into_response());
@@ -181,7 +196,7 @@ pub async fn update_workflow(
     State(state): State<AppState>,
     Json(req): Json<UpdateWorkflowRequest>,
 ) -> Result<Json<Workflow>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let actor = claims.sub;
 
     let existing = sqlx::query_as::<_, Workflow>(
@@ -210,7 +225,9 @@ pub async fn update_workflow(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "name cannot be empty".to_string(),
-                        details: Some(json!({ "field": "name", "constraint": "must not be empty" })),
+                        details: Some(
+                            json!({ "field": "name", "constraint": "must not be empty" }),
+                        ),
                     }),
                 )
                     .into_response());
@@ -229,7 +246,9 @@ pub async fn update_workflow(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "trigger_event cannot be empty".to_string(),
-                        details: Some(json!({ "field": "trigger_event", "constraint": "must not be empty" })),
+                        details: Some(
+                            json!({ "field": "trigger_event", "constraint": "must not be empty" }),
+                        ),
                     }),
                 )
                     .into_response());
@@ -248,7 +267,9 @@ pub async fn update_workflow(
                     Json(ApiError {
                         code: "VALIDATION_ERROR".to_string(),
                         message: "action_type cannot be empty".to_string(),
-                        details: Some(json!({ "field": "action_type", "constraint": "must not be empty" })),
+                        details: Some(
+                            json!({ "field": "action_type", "constraint": "must not be empty" }),
+                        ),
                     }),
                 )
                     .into_response());
@@ -301,7 +322,7 @@ pub async fn delete_workflow(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
     let actor = claims.sub;
 
     let result = sqlx::query("DELETE FROM workflows WHERE id = $1")
@@ -323,7 +344,7 @@ pub async fn delete_workflow(
             "workflow not found",
         ));
     }
-    
+
     tracing::info!(actor = %actor, workflow_id = %id, "workflow deleted");
     Ok(StatusCode::NO_CONTENT)
 }

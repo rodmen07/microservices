@@ -1,0 +1,818 @@
+openapi: 3.0.3
+info:
+  title: accounts-service API
+  version: 1.16.1
+  description: |
+    CRM accounts service for the InfraPortal platform. Rust (axum 0.8) with
+    PostgreSQL persistence. Provides CRUD operations on customer accounts plus
+    health and readiness probes.
+
+    This spec documents the API contract as implemented in code
+    (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
+    All runtime endpoints have been offline since 2026-06-04, when the platform
+    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+
+    Authentication: every /api/v1 route validates a bearer JWT in the handler
+    and additionally requires the "admin" role. Requests without a valid token
+    receive 401; valid tokens without the admin role receive 403 with body
+    {"code": "FORBIDDEN", "message": "admin role required"}.
+
+    Error envelope: service-generated errors use the ApiError shape
+    {"code", "message", "details?"}. Framework-generated rejections (malformed
+    JSON, JSON body that fails deserialization, invalid query string types) are
+    produced by axum before the handler runs and have text/plain bodies; they
+    are documented per operation below.
+
+    Rate limiting: enforced at the platform gateway (go-gateway, shipped in
+    v1.10), not in this service. The gateway sets X-RateLimit-Limit,
+    X-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and
+    adds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes
+    30 rps, read routes 60 rps, per client IP per route. Requests sent directly
+    to the service bypass the gateway and carry none of these headers.
+  contact:
+    name: InfraPortal platform
+externalDocs:
+  description: "Platform API getting-started guide"
+  url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
+servers:
+  - url: "https://accounts-service-5gcrg4oiza-uc.a.run.app"
+    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+  - url: "http://localhost:3010"
+    description: "Local development (default HOST 0.0.0.0, default PORT 3010)."
+tags:
+  - name: Health
+    description: "Liveness and readiness probes. Unauthenticated."
+  - name: Accounts
+    description: "Account CRUD. Requires a bearer JWT with the admin role."
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Liveness probe
+      description: |
+        Returns service health. The handler runs a database ping (SELECT 1),
+        so a failing database returns 503 with status "degraded" and an error
+        string. No authentication required.
+      operationId: healthCheck
+      security: []
+      responses:
+        "200":
+          description: Service is up and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness probe
+      description: |
+        Wired to the same handler as /health, so readiness and liveness are
+        currently identical: both run the database ping. No authentication
+        required.
+      operationId: readinessCheck
+      security: []
+      responses:
+        "200":
+          description: Service is ready and the database ping succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+        "503":
+          description: Database ping failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: degraded
+                error: "pool timed out while waiting for an open connection"
+  /api/v1/accounts:
+    get:
+      tags:
+        - Accounts
+      summary: List accounts
+      description: |
+        Returns a paginated list of accounts ordered by created_at descending,
+        then id descending. Supports filtering by status, case-insensitive
+        substring search on name (q), and filtering by owner_id. Requires the
+        admin role, so the caller sees all accounts unless owner_id is given.
+        Read tier: 60 rps at the gateway.
+      operationId: listAccounts
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: |
+            Maximum number of rows to return. Defaults to 50. Values are
+            clamped to the range 1 to 100 rather than rejected.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of rows to skip. Defaults to 0.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: status
+          in: query
+          required: false
+          description: "Filter by exact account status."
+          schema:
+            type: string
+            enum:
+              - active
+              - inactive
+              - churned
+        - name: q
+          in: query
+          required: false
+          description: "Case-insensitive substring match on account name (SQL ILIKE)."
+          schema:
+            type: string
+          example: globex
+        - name: owner_id
+          in: query
+          required: false
+          description: "Restrict results to accounts owned by this user ID."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated account list.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListAccountsResponse"
+              example:
+                data:
+                  - id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                    owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    name: "Globex Corporation"
+                    domain: "globex.com"
+                    status: active
+                    created_at: "2026-07-18T14:30:00Z"
+                    updated_at: "2026-07-18T14:30:00Z"
+                  - id: "b2c4d6e8-0a1b-4c3d-8e5f-6a7b8c9d0e1f"
+                    owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                    name: "Initech LLC"
+                    domain: null
+                    status: inactive
+                    created_at: "2026-07-01T09:15:00Z"
+                    updated_at: "2026-07-10T11:00:00Z"
+                total: 2
+                limit: 50
+                offset: 0
+        "400":
+          description: |
+            Invalid query string, for example limit=abc. Generated by the axum
+            Query extractor before the handler runs; the body is text/plain,
+            not the ApiError envelope.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to deserialize query string: limit: invalid digit found in string"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Accounts
+      summary: Create an account
+      description: |
+        Creates an account owned by the caller (owner_id is taken from the JWT
+        sub claim). The name is trimmed and must be non-empty and at most 255
+        characters. status defaults to "active" when omitted. A blank or
+        whitespace-only domain is stored as null. On success the service also
+        emits an account.created platform event, indexes the account in
+        search-service, and emits an audit event (all fire-and-forget).
+        Write tier: 30 rps at the gateway.
+      operationId: createAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountRequest"
+            example:
+              name: "Globex Corporation"
+              domain: "globex.com"
+              status: active
+      responses:
+        "201":
+          description: Account created.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              example:
+                id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                name: "Globex Corporation"
+                domain: "globex.com"
+                status: active
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "400":
+          description: |
+            Validation failure (ApiError envelope) or malformed JSON syntax
+            (text/plain, generated by the axum Json extractor before the
+            handler runs).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: Name empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name must not be empty"
+                    details:
+                      field: name
+                      constraint: "must not be empty"
+                nameTooLong:
+                  summary: Name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name exceeds maximum length"
+                    details:
+                      field: name
+                      constraint: "max 255 characters"
+                invalidStatus:
+                  summary: Status not in the accepted set
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "invalid status value"
+                    details:
+                      field: status
+                      valid_values:
+                        - active
+                        - inactive
+                        - churned
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/accounts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "Account ID (UUID v4, stored as TEXT)."
+        schema:
+          type: string
+          format: uuid
+        example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+    get:
+      tags:
+        - Accounts
+      summary: Get an account
+      description: |
+        Fetches a single account by ID. Returns 404 when no account with that
+        ID exists. Read tier: 60 rps at the gateway.
+      operationId: getAccount
+      responses:
+        "200":
+          description: The requested account.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              example:
+                id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                name: "Globex Corporation"
+                domain: "globex.com"
+                status: active
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T14:30:00Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Accounts
+      summary: Update an account
+      description: |
+        Partial update. Omitted fields keep their stored values. A name given
+        as empty or whitespace is rejected with 400; sending domain as an
+        empty or whitespace string clears it to null. updated_at is refreshed
+        on success. On success the service also emits an account.updated
+        platform event, re-indexes the account in search-service, and emits an
+        audit event (all fire-and-forget). Write tier: 30 rps at the gateway.
+      operationId: updateAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountRequest"
+            example:
+              status: inactive
+      responses:
+        "200":
+          description: The updated account.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+              example:
+                id: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+                owner_id: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+                name: "Globex Corporation"
+                domain: "globex.com"
+                status: inactive
+                created_at: "2026-07-18T14:30:00Z"
+                updated_at: "2026-07-18T16:45:00Z"
+        "400":
+          description: |
+            Validation failure (ApiError envelope) or malformed JSON syntax
+            (text/plain, generated by the axum Json extractor before the
+            handler runs).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              examples:
+                emptyName:
+                  summary: Name provided but empty after trimming
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name cannot be empty"
+                    details:
+                      field: name
+                      constraint: "cannot be empty"
+                nameTooLong:
+                  summary: Name longer than 255 characters
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "name exceeds maximum length"
+                    details:
+                      field: name
+                      constraint: "max 255 characters"
+                invalidStatus:
+                  summary: Status not in the accepted set
+                  value:
+                    code: VALIDATION_ERROR
+                    message: "invalid status value"
+                    details:
+                      field: status
+                      valid_values:
+                        - active
+                        - inactive
+                        - churned
+            text/plain:
+              schema:
+                type: string
+              example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Accounts
+      summary: Delete an account
+      description: |
+        Deletes an account by ID. Returns 204 with no body on success, 404
+        when no row was deleted. On success the service also emits an audit
+        event and removes the account from the search index (fire-and-forget).
+        Write tier: 30 rps at the gateway.
+      operationId: deleteAccount
+      responses:
+        "204":
+          description: Account deleted. No response body.
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/XRateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/XRateLimitRemaining"
+            X-RateLimit-Reset:
+              $ref: "#/components/headers/XRateLimitReset"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Bearer JWT issued by auth-service. Validated in-handler with HS256 by
+        default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
+        RS512). The token must carry an exp claim and an iss claim matching
+        AUTH_ISSUER (default "auth-service"). The sub claim identifies the
+        caller; the roles claim (array of strings, case-insensitive) must
+        include "admin" for every /api/v1 route in this service.
+  schemas:
+    Account:
+      type: object
+      description: "A CRM account record. IDs and timestamps are stored as TEXT."
+      required:
+        - id
+        - owner_id
+        - name
+        - domain
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: "Account ID, a UUID v4 generated at creation."
+          example: "3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b"
+        owner_id:
+          type: string
+          description: "ID of the owning user, taken from the JWT sub claim of the creator."
+          example: "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
+        name:
+          type: string
+          maxLength: 255
+          description: "Account display name. Trimmed, non-empty, at most 255 characters."
+          example: "Globex Corporation"
+        domain:
+          type: string
+          nullable: true
+          description: "Company domain. Null when not set; serialized as null, never omitted."
+          example: "globex.com"
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - churned
+          description: "Account lifecycle status."
+          example: active
+        created_at:
+          type: string
+          format: date-time
+          description: "Creation timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: "Last update timestamp, UTC, formatted %Y-%m-%dT%H:%M:%SZ (second precision)."
+          example: "2026-07-18T14:30:00Z"
+    CreateAccountRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "Account display name. Trimmed server-side; must be non-empty after trimming."
+          example: "Globex Corporation"
+        domain:
+          type: string
+          nullable: true
+          description: "Company domain. Blank or whitespace-only values are stored as null."
+          example: "globex.com"
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - churned
+          default: active
+          description: "Initial status. Defaults to active when omitted."
+    UpdateAccountRequest:
+      type: object
+      description: "Partial update. Every field is optional; omitted fields keep their stored values."
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: "New display name. An empty or whitespace-only value is rejected with 400."
+          example: "Globex Corporation"
+        domain:
+          type: string
+          nullable: true
+          description: "New domain. An empty or whitespace-only value clears the domain to null."
+          example: "globex.com"
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - churned
+          description: "New status."
+          example: inactive
+    ListAccountsQuery:
+      type: object
+      description: "Query parameters accepted by listAccounts, shown here for reference."
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+        status:
+          type: string
+          enum:
+            - active
+            - inactive
+            - churned
+        q:
+          type: string
+        owner_id:
+          type: string
+    ListAccountsResponse:
+      type: object
+      required:
+        - data
+        - total
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Account"
+        total:
+          type: integer
+          format: int64
+          description: "Total number of rows matching the filters, ignoring pagination."
+          example: 2
+        limit:
+          type: integer
+          description: "Effective limit after clamping to the range 1 to 100."
+          example: 50
+        offset:
+          type: integer
+          description: "Effective offset applied to the query."
+          example: 0
+    ApiError:
+      type: object
+      description: "Standard platform error envelope. details is omitted when absent, never null."
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: "Machine-readable error code."
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: "Human-readable error message."
+          example: "name must not be empty"
+        details:
+          description: "Optional structured context, for example the offending field and constraint."
+          example:
+            field: name
+            constraint: "must not be empty"
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+            - degraded
+          example: ok
+        error:
+          type: string
+          description: "Database error string. Present only when status is degraded."
+          example: "pool timed out while waiting for an open connection"
+  headers:
+    XRateLimitLimit:
+      description: |
+        Requests per second allowed for the matched route tier, per client IP.
+        Platform tiers (enforced by go-gateway since v1.10): auth 5 rps,
+        write 30 rps, read 60 rps. Absent when the service is called directly
+        without the gateway.
+      schema:
+        type: integer
+      example: 60
+    XRateLimitRemaining:
+      description: "Requests remaining in the current token bucket for this client and route tier."
+      schema:
+        type: integer
+      example: 59
+    XRateLimitReset:
+      description: "Unix epoch second at which the bucket refills."
+      schema:
+        type: integer
+        format: int64
+      example: 1784822400
+  responses:
+    Unauthorized:
+      description: "Missing, malformed, or invalid bearer token."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          examples:
+            missingHeader:
+              summary: No Authorization header
+              value:
+                code: AUTH_REQUIRED
+                message: "authorization header is required"
+            invalidFormat:
+              summary: Header is not exactly Bearer plus one token
+              value:
+                code: AUTH_INVALID_FORMAT
+                message: "authorization header format must be 'Bearer <token>'"
+            invalidToken:
+              summary: Signature, expiry, or issuer validation failed
+              value:
+                code: AUTH_INVALID_TOKEN
+                message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    NotFound:
+      description: "No account with the given ID exists."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: NOT_FOUND
+            message: "account not found"
+    UnprocessableEntity:
+      description: |
+        JSON body parsed but failed deserialization into the request type, for
+        example a missing required field or a wrong type. Generated by the
+        axum Json extractor before the handler runs; the body is text/plain,
+        not the ApiError envelope.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        text/plain:
+          schema:
+            type: string
+          example: "Failed to deserialize the JSON body into the target type: missing field `name` at line 1 column 2"
+    RateLimited:
+      description: |
+        Rate limit exceeded for the matched route tier. Returned by go-gateway,
+        not by this service; direct calls to the service are never rate
+        limited. The body follows the ApiError envelope without details.
+      headers:
+        Retry-After:
+          description: "Seconds to wait before retrying."
+          schema:
+            type: integer
+          example: 1
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: RATE_LIMITED
+            message: "rate limit exceeded (30 req/s), retry after 1s"
+    InternalError:
+      description: "A database query failed."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: DB_ERROR
+            message: "database error"
