@@ -119,3 +119,7 @@ When the limit is exceeded, the gateway returns 429 with a `Retry-After` header 
 | spend-service | [`spend-service/openapi.yaml`](../spend-service/openapi.yaml) | Available (v1.16.1 PR2) |
 
 The specs are static OpenAPI 3.0.3 documents derived from the service source (router, handlers, models, auth). Spec validation in CI and the frontend Swagger UI wiring are tracked in `ROADMAP.md` under v1.16.1.
+
+### Postman
+
+A ready-to-import Postman collection and environment generated from these specs (v1.16.3 PR2) live in [`postman/`](../postman/); see [`postman/README.md`](../postman/README.md) for import, dev-token minting, and regeneration instructions.
