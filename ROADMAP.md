@@ -55,6 +55,8 @@ Every item on this roadmap falls into exactly one bucket:
 
 ## Next milestones
 
+STATUS 2026-07-19: every v1.16 milestone below is DELIVERED (v1.16.0 via PRs #89/#92, v1.16.1 via #93/#94, v1.16.2 via #95 plus go-gateway #10, v1.16.3 via #96/#97, v1.16.4 via infraportal #20/#21, v1.16.5 PR1 via infraportal #22), far ahead of the weekly cadence originally targeted. The sections are retained below as the delivered scope of record; the next theme (v1.17) is proposed in docs/design/V1_17_THEME.md and gated on user decisions D1-D5.
+
 Cadence target: roughly one minor version per week, restarting at v1.16.0 the week of 2026-07-20. Each milestone is sized for one or two small PRs so the one-increment-per-run workflow can deliver it. Order below is the intended ship order; v1.16.2's rate-limit guide is independent and may land earlier if sequencing demands.
 
 ### v1.16.0 - Auth Hardening Wrap-up and Roadmap Reset (doable now)
