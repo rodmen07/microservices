@@ -16,7 +16,7 @@ jobs:
     name: Lint OpenAPI specs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Specs are discovered with a shell glob so future services are picked
       # up automatically. Redocly CLI is pinned to an exact version (never
