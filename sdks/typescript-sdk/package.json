@@ -1,0 +1,38 @@
+{
+  "name": "@rodmen07/infraportal-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the InfraPortal CRM platform API: typed fetch client with gateway-aware retry, rate-limit header parsing, and types generated from the per-service OpenAPI 3.0.3 specs.",
+  "type": "module",
+  "private": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test \"tests/*.test.mjs\""
+  },
+  "keywords": [
+    "infraportal",
+    "crm",
+    "sdk",
+    "openapi",
+    "typescript"
+  ],
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.5.0"
+  }
+}
