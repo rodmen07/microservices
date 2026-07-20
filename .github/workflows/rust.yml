@@ -104,6 +104,24 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo test -p audit-service
 
+      # The Test all services step above already ran every integration test once
+      # against these same databases. Several tests (e.g. contacts-service's
+      # list_contacts_filter_by_account_id) insert fixed, non-unique fixture rows
+      # and assert an exact row count rather than cleaning up after themselves, so
+      # running the suite a second time against the now non-empty databases fails
+      # with stale data instead of a coverage-related problem. Drop and recreate
+      # each database so tarpaulin starts from the same clean state the Test step
+      # did; migrations re-apply automatically via sqlx::migrate! the next time
+      # AppState::from_database_url runs, same as the original database creation.
+      - name: Reset per-service test databases before coverage
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for db in accounts contacts activities workflows connections opportunities reports documents spend projects audit; do
+            psql -h localhost -U postgres -c "DROP DATABASE ${db};"
+            psql -h localhost -U postgres -c "CREATE DATABASE ${db};"
+          done
+
       # Run tarpaulin once per service, mirroring the "Test all services" step above.
       # Each service needs its own DATABASE_URL (its own logical database), and cargo
       # tarpaulin cannot vary the env per -p when several packages are passed to a
