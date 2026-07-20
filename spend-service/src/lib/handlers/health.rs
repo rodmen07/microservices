@@ -1,13 +1,13 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde_json;
 
-use crate::app_state::AppState;
+use crate::{app_state::AppState, models::HealthResponse};
 
 pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
     match sqlx::query("SELECT 1").execute(&state.pool).await {
         Ok(_) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "status": "ok" })),
+            Json(serde_json::json!(HealthResponse::ok())),
         ),
         Err(e) => {
             tracing::error!(error = %e, "health check db ping failed");
