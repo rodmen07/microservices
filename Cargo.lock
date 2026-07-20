@@ -7,6 +7,7 @@ name = "accounts-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -32,6 +33,7 @@ name = "activities-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -131,6 +133,7 @@ name = "audit-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -162,6 +165,7 @@ name = "automation-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -213,6 +217,18 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-api-kit"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02876d6cec2b6344a74c376e6841f09c17f303d73cc30144c3901ea0998a2cc9"
+dependencies = [
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -398,6 +414,7 @@ name = "contacts-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -1289,6 +1306,7 @@ name = "integrations-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -1753,6 +1771,7 @@ name = "opportunities-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -1949,6 +1968,7 @@ name = "projects-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -2203,6 +2223,7 @@ name = "reporting-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "csv",
  "http-body-util",
@@ -2468,6 +2489,7 @@ name = "search-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "http-body-util",
  "jsonwebtoken 9.3.1",
@@ -2700,6 +2722,7 @@ name = "spend-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "axum-api-kit",
  "chrono",
  "hmac 0.13.0",
  "http-body-util",

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::FromRow;
+
+pub use axum_api_kit::{ApiError, HealthResponse};
 
 /// Valid account status values.
 pub const VALID_STATUSES: &[&str] = &["active", "inactive", "churned"];
@@ -39,23 +40,4 @@ pub struct ListAccountsQuery {
     pub owner_id: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ListAccountsResponse {
-    pub data: Vec<Account>,
-    pub total: i64,
-    pub limit: u32,
-    pub offset: u32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<Value>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct HealthResponse {
-    pub status: &'static str,
-}
+pub type ListAccountsResponse = axum_api_kit::ListResponse<Account>;

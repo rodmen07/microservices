@@ -1,22 +1,11 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+pub use axum_api_kit::{ApiError, HealthResponse};
+
 pub const VALID_PLATFORMS: &[&str] = &["gcp", "flyio", "anthropic", "github_copilot", "github", "aws"];
 pub const VALID_GRANULARITIES: &[&str] = &["daily", "monthly"];
 pub const VALID_SOURCES: &[&str] = &["manual", "bigquery", "flyio_graphql", "github_api", "aws_cost_explorer"];
-
-#[derive(Debug, Serialize)]
-pub struct HealthResponse {
-    pub status: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SpendRecord {
@@ -68,13 +57,7 @@ pub struct SummaryQuery {
     pub date_to: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ListSpendResponse {
-    pub data: Vec<SpendRecord>,
-    pub total: i64,
-    pub limit: u32,
-    pub offset: u32,
-}
+pub type ListSpendResponse = axum_api_kit::ListResponse<SpendRecord>;
 
 #[derive(Debug, Serialize)]
 pub struct SpendSummary {
