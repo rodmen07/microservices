@@ -150,7 +150,7 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo tarpaulin --out Xml --exclude-files tests/ -p audit-service         --output-dir coverage/audit
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage/accounts/cobertura.xml,./coverage/contacts/cobertura.xml,./coverage/activities/cobertura.xml,./coverage/workflows/cobertura.xml,./coverage/connections/cobertura.xml,./coverage/opportunities/cobertura.xml,./coverage/reports/cobertura.xml,./coverage/documents/cobertura.xml,./coverage/spend/cobertura.xml,./coverage/projects/cobertura.xml,./coverage/audit/cobertura.xml
 
