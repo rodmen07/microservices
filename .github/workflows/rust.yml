@@ -104,15 +104,37 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo test -p audit-service
 
+      # Run tarpaulin once per service, mirroring the "Test all services" step above.
+      # Each service needs its own DATABASE_URL (its own logical database), and cargo
+      # tarpaulin cannot vary the env per -p when several packages are passed to a
+      # single invocation, so a combined run leaves every test binary without a
+      # database to connect to. A single shared database is not a safe alternative
+      # either: each service's sqlx migrations assume an empty schema of its own and
+      # are not namespaced against the other ten services, so merging them into one
+      # database risks table-name collisions across otherwise-unrelated services.
       - name: Test coverage
+        env:
+          AUTH_JWT_SECRET: dev-insecure-secret-change-me
+          ALLOWED_ORIGINS: http://localhost:5173
         run: |
           cargo install cargo-tarpaulin --locked
-          cargo tarpaulin --out Xml --exclude-files tests/ -p accounts-service -p contacts-service -p activities-service -p automation-service -p integrations-service -p opportunities-service -p reporting-service -p search-service -p spend-service -p projects-service -p audit-service
+          mkdir -p coverage
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/accounts      cargo tarpaulin --out Xml --exclude-files tests/ -p accounts-service      --output-dir coverage/accounts
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/contacts      cargo tarpaulin --out Xml --exclude-files tests/ -p contacts-service      --output-dir coverage/contacts
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/activities    cargo tarpaulin --out Xml --exclude-files tests/ -p activities-service    --output-dir coverage/activities
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/workflows     cargo tarpaulin --out Xml --exclude-files tests/ -p automation-service    --output-dir coverage/workflows
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/connections   cargo tarpaulin --out Xml --exclude-files tests/ -p integrations-service  --output-dir coverage/connections
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/opportunities cargo tarpaulin --out Xml --exclude-files tests/ -p opportunities-service --output-dir coverage/opportunities
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/reports       cargo tarpaulin --out Xml --exclude-files tests/ -p reporting-service     --output-dir coverage/reports
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/documents     cargo tarpaulin --out Xml --exclude-files tests/ -p search-service        --output-dir coverage/documents
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/spend         cargo tarpaulin --out Xml --exclude-files tests/ -p spend-service         --output-dir coverage/spend
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo tarpaulin --out Xml --exclude-files tests/ -p projects-service      --output-dir coverage/projects
+          DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo tarpaulin --out Xml --exclude-files tests/ -p audit-service         --output-dir coverage/audit
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
-          files: ./cobertura.xml
+          files: ./coverage/accounts/cobertura.xml,./coverage/contacts/cobertura.xml,./coverage/activities/cobertura.xml,./coverage/workflows/cobertura.xml,./coverage/connections/cobertura.xml,./coverage/opportunities/cobertura.xml,./coverage/reports/cobertura.xml,./coverage/documents/cobertura.xml,./coverage/spend/cobertura.xml,./coverage/projects/cobertura.xml,./coverage/audit/cobertura.xml
 
   # ─── Dependency security audit ──────────────────────────────────────────────
   audit:
