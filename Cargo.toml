@@ -25,10 +25,10 @@ result_large_err = "allow"
 axum-api-kit = "1.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rustls-webpki = "0.103.13"  # Security fix: reachable panic in CRL parsing (RUSTSEC-2026-0104)
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-gcloud-trace = "0.23"
-tracing-opentelemetry = "0.24"
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-gcloud-trace = "0.24"
+tracing-opentelemetry = "0.33"
 
 [profile.release]
 lto = true
