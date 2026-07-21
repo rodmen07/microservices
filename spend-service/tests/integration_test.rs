@@ -364,3 +364,73 @@ async fn get_nonexistent_spend_returns_404() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+
+// ---------------------------------------------------------------------------
+// GitHub sync dedup-key regression tests.
+//
+// `service_label` is part of the `idx_spend_dedup` unique index
+// (platform, date, service_label) that every sync's `ON CONFLICT DO NOTHING`
+// depends on. The GitHub sync used to build that label from live usage figures
+// ("GitHub Actions (412/2000 min, 0 paid)", "GitHub Storage (1.2 GB est.,
+// 17 days left)"), so consecutive runs in the same month produced *different*
+// keys, never conflicted, and inserted duplicate rows that the summary endpoint
+// then counted more than once.
+//
+// These tests assert the property that was violated: the label must not vary
+// with usage. They fail against the old formatting and pass against the current
+// constants.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn github_actions_label_is_stable_across_differing_usage() {
+    // Same month, wildly different usage: the dedup key must be identical.
+    let quiet = spend_service::sync::GITHUB_ACTIONS_LABEL;
+    let busy = spend_service::sync::GITHUB_ACTIONS_LABEL;
+    assert_eq!(
+        quiet, busy,
+        "GitHub Actions dedup label must not vary between syncs"
+    );
+
+    // And it must not smuggle usage numbers back into the key.
+    assert!(
+        !quiet.chars().any(|c| c.is_ascii_digit()),
+        "dedup label must contain no digits, found: {quiet}"
+    );
+}
+
+#[test]
+fn github_storage_label_is_stable_across_differing_usage() {
+    let label = spend_service::sync::GITHUB_STORAGE_LABEL;
+    assert!(
+        !label.chars().any(|c| c.is_ascii_digit()),
+        "dedup label must contain no digits, found: {label}"
+    );
+}
+
+#[test]
+fn github_actions_notes_carry_the_volatile_detail() {
+    // The usage figures are preserved — they just live in `notes`, which is not
+    // part of the unique index, rather than in the dedup key.
+    let first = spend_service::sync::github_actions_notes(412.0, 2000.0, 0.0);
+    let second = spend_service::sync::github_actions_notes(998.0, 2000.0, 31.0);
+
+    assert_ne!(
+        first, second,
+        "notes should reflect changing usage (that is why they cannot be the key)"
+    );
+    assert!(first.contains("412"), "expected minutes in notes, got: {first}");
+    assert!(second.contains("31"), "expected paid minutes in notes, got: {second}");
+}
+
+#[test]
+fn github_storage_notes_carry_the_volatile_detail() {
+    let day_17 = spend_service::sync::github_storage_notes(1.2, 17);
+    let day_16 = spend_service::sync::github_storage_notes(1.2, 16);
+
+    assert_ne!(
+        day_17, day_16,
+        "days_left changes daily — exactly why it must not be in the dedup key"
+    );
+    assert!(day_17.contains("17"), "expected days left in notes, got: {day_17}");
+    assert!(day_17.contains("1.2"), "expected GB estimate in notes, got: {day_17}");
+}
