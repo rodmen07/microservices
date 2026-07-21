@@ -424,6 +424,32 @@ struct GitHubStorageUsage {
     estimated_storage_for_month: f64,
 }
 
+// `service_label` participates in the `idx_spend_dedup` unique index
+// (platform, date, service_label) that every sync relies on for its
+// `ON CONFLICT DO NOTHING` to work. It therefore MUST be stable across runs.
+//
+// These labels used to embed live usage figures — "GitHub Actions (412/2000 min,
+// 0 paid)" and "GitHub Storage (1.2 GB est., 17 days left)". Both change between
+// runs (minutes climb with usage, days_left decrements daily), so each run
+// produced a *different* dedup key for the same month and inserted a new row
+// instead of conflicting. GitHub spend accumulated duplicate rows per month and
+// the summary endpoint counted every one of them.
+//
+// The volatile detail moves to `notes`, which is not part of the unique index.
+// GCP, Fly.io and AWS were never affected: they label with a BigQuery service
+// description, an org slug, and a Cost Explorer service key respectively, all
+// stable across runs.
+pub const GITHUB_ACTIONS_LABEL: &str = "GitHub Actions";
+pub const GITHUB_STORAGE_LABEL: &str = "GitHub Storage";
+
+pub fn github_actions_notes(minutes_used: f64, included_minutes: f64, paid_minutes: f64) -> String {
+    format!("{minutes_used:.0}/{included_minutes:.0} min, {paid_minutes:.0} paid")
+}
+
+pub fn github_storage_notes(estimated_gb: f64, days_left_in_billing_cycle: u32) -> String {
+    format!("{estimated_gb:.1} GB est., {days_left_in_billing_cycle} days left")
+}
+
 pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> SyncResult {
     let mut result = SyncResult {
         platform: "github".to_string(),
@@ -479,18 +505,15 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                 let minutes = usage.total_minutes_used;
                 // GitHub charges $0.008/min for Linux runners on paid overages
                 let amount_usd = paid * 0.008;
-                let label = format!(
-                    "GitHub Actions ({:.0}/{:.0} min, {:.0} paid)",
-                    minutes, usage.included_minutes, paid
-                );
+                let notes = github_actions_notes(minutes, usage.included_minutes, paid);
                 if amount_usd > 0.0 {
                     let id = Uuid::new_v4().to_string();
                     match sqlx::query(
                         "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', NULL, $5, $6)
+                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', $7, $5, $6)
                          ON CONFLICT DO NOTHING",
                     )
-                    .bind(&id).bind(&month_date).bind(amount_usd).bind(&label).bind(&now_str).bind(&now_str)
+                    .bind(&id).bind(&month_date).bind(amount_usd).bind(GITHUB_ACTIONS_LABEL).bind(&now_str).bind(&now_str).bind(&notes)
                     .execute(pool).await
                     {
                         Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
@@ -520,17 +543,17 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
             Ok(usage) => {
                 let amount_usd = usage.estimated_paid_storage_for_month;
                 if amount_usd > 0.0 {
-                    let label = format!(
-                        "GitHub Storage ({:.1} GB est., {} days left)",
-                        usage.estimated_storage_for_month, usage.days_left_in_billing_cycle
+                    let notes = github_storage_notes(
+                        usage.estimated_storage_for_month,
+                        usage.days_left_in_billing_cycle,
                     );
                     let id = Uuid::new_v4().to_string();
                     match sqlx::query(
                         "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', NULL, $5, $6)
+                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', $7, $5, $6)
                          ON CONFLICT DO NOTHING",
                     )
-                    .bind(&id).bind(&month_date).bind(amount_usd).bind(&label).bind(&now_str).bind(&now_str)
+                    .bind(&id).bind(&month_date).bind(amount_usd).bind(GITHUB_STORAGE_LABEL).bind(&now_str).bind(&now_str).bind(&notes)
                     .execute(pool).await
                     {
                         Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
