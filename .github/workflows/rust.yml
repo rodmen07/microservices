@@ -104,21 +104,58 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/projects      cargo test -p projects-service
           DATABASE_URL=postgres://postgres:postgres@localhost:5432/audit         cargo test -p audit-service
 
-      # The Test all services step above already ran every integration test once
-      # against these same databases. Several tests (e.g. contacts-service's
-      # list_contacts_filter_by_account_id) insert fixed, non-unique fixture rows
-      # and assert an exact row count rather than cleaning up after themselves, so
-      # running the suite a second time against the now non-empty databases fails
-      # with stale data instead of a coverage-related problem. Drop and recreate
-      # each database so tarpaulin starts from the same clean state the Test step
-      # did; migrations re-apply automatically via sqlx::migrate! the next time
-      # AppState::from_database_url runs, same as the original database creation.
-      - name: Reset per-service test databases before coverage
+  # ─── Coverage (main only, parallel to Lint and test) ────────────────────────
+  #
+  # Split out of the `test` job on 2026-07-21. Measured from job 88619900319
+  # (total 23m19s): `Test coverage` was 19m04s, i.e. 82% of the job, against
+  # 1m15s for clippy and 2m00s for the tests themselves. Every PR paid all 19
+  # minutes before a human saw a result, for an artifact nothing gates on —
+  # there is no codecov config in this repo, so coverage is upload-only.
+  #
+  # It runs only on pushes to main: PR feedback drops to the ~4m of real
+  # verification, and main still gets full coverage, now in parallel with the
+  # test job rather than appended to it.
+  #
+  # This job creates its own databases in its own postgres service container, so
+  # the old "Reset per-service test databases before coverage" step is gone: it
+  # existed only because tarpaulin previously ran after the test suite had
+  # already populated these same databases, and several tests assert exact row
+  # counts without cleaning up after themselves. A fresh service container is
+  # empty by construction.
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Create per-service test databases
         env:
           PGPASSWORD: postgres
         run: |
           for db in accounts contacts activities workflows connections opportunities reports documents spend projects audit; do
-            psql -h localhost -U postgres -c "DROP DATABASE ${db};"
             psql -h localhost -U postgres -c "CREATE DATABASE ${db};"
           done
 
