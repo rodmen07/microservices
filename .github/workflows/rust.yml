@@ -332,6 +332,11 @@ jobs:
         run: |
           # Retry up to 3 times with backoff to handle transient GCP
           # optimistic-concurrency (ETag) conflicts (ABORTED status).
+          #
+          # `deployed` exists because the loop's last command used to be `sleep`,
+          # which succeeds — so when all three attempts failed the step still
+          # exited 0 and the job reported a successful deploy of nothing.
+          deployed=false
           for attempt in 1 2 3; do
             gcloud run deploy "${{ matrix.cloud_run_service }}" \
               --image "$IMAGE" \
@@ -346,10 +351,15 @@ jobs:
               --add-cloudsql-instances "${{ env.CLOUD_SQL_INSTANCE }}" \
               --set-env-vars "^#^AUTH_JWT_ALGORITHM=HS256#AUTH_ISSUER=auth-service#ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}${{ matrix.extra_env && format('#{0}', matrix.extra_env) || '' }}" \
               --set-secrets "AUTH_JWT_SECRET=AUTH_JWT_SECRET:latest,DATABASE_URL=${{ matrix.db_secret }}:latest${{ matrix.extra_secrets && format(',{0}', matrix.extra_secrets) || '' }}" \
-              --quiet && break
+              --quiet && { deployed=true; break; }
             echo "::warning::Deploy attempt $attempt failed for ${{ matrix.cloud_run_service }}. Retrying in $((attempt * 20))s..."
             sleep $((attempt * 20))
           done
+
+          if [ "$deployed" != "true" ]; then
+            echo "::error::Deploy failed for ${{ matrix.cloud_run_service }} after 3 attempts."
+            exit 1
+          fi
 
       - name: Allow unauthenticated access
         if: steps.deploy_config.outputs.enabled == 'true'
@@ -358,3 +368,39 @@ jobs:
             --region "${{ env.GCP_REGION }}" \
             --member="allUsers" \
             --role="roles/run.invoker"
+
+      # A successful `gcloud run deploy` proves only that Cloud Run ACCEPTED the
+      # revision — not that the container can serve. Between 2026-06-04 (Cloud SQL
+      # deleted) and 2026-07-21 every service returned HTTP 503 to every request
+      # while this job reported success on every single merge, because nothing
+      # here ever asked the deployed service a question. This step asks.
+      - name: Smoke test deployed service
+        if: steps.deploy_config.outputs.enabled == 'true'
+        run: |
+          URL=$(gcloud run services describe "${{ matrix.cloud_run_service }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --format='value(status.url)')
+
+          if [ -z "$URL" ]; then
+            echo "::error::Could not resolve a URL for ${{ matrix.cloud_run_service }}."
+            exit 1
+          fi
+
+          echo "Probing ${URL}/health"
+
+          # Retries absorb cold start (min-instances=0, so the first request pays
+          # container startup plus the Cloud SQL connection). They do NOT absorb a
+          # genuinely unhealthy service: after the last attempt this fails the job.
+          code=000
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/health" || echo 000)
+            if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+              echo "${URL}/health -> HTTP ${code}"
+              exit 0
+            fi
+            echo "::warning::Attempt ${attempt}: ${URL}/health -> HTTP ${code}. Retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+
+          echo "::error::${{ matrix.cloud_run_service }} deployed but ${URL}/health returned HTTP ${code} after 5 attempts."
+          exit 1
