@@ -172,10 +172,19 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run security audit
+        # --deny warnings: without it, `cargo audit` exits 0 on `unsound` and
+        # `yanked` advisories, so they accumulate silently. Four had (anyhow
+        # RUSTSEC-2026-0190, rand RUSTSEC-2026-0097 on both the 0.8 and 0.9
+        # lines, and a yanked spin 0.9.8) while every CI run stayed green. All
+        # four are fixed in this commit's Cargo.lock, so the stricter gate
+        # starts from a clean baseline; a new one now fails the build instead
+        # of scrolling past.
+        #
         # RUSTSEC-2023-0071: rsa Marvin Attack — no patch available in rsa 0.9.x.
         # All services default to HS256; RSA is only used for token verification
         # on controlled infrastructure. Risk accepted until upstream ships a fix.
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        # This is the ONLY accepted advisory; every other finding must be fixed.
+        run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
 
   # ─── Deploy to Google Cloud Run (main branch only) ─────────────────────────
   #
