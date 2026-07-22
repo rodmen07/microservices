@@ -1,24 +1,23 @@
 name: CI/CD
 
+# NOTE: There is intentionally NO `paths-ignore` on any trigger below.
+#
+# `paths-ignore` is a WORKFLOW-LEVEL filter: when it excludes a change the
+# whole workflow is *skipped*, and a skipped workflow creates NO check runs.
+# Branch protection then sees the required contexts "Lint and test" and
+# "Security audit" as permanently "Pending" and blocks the PR forever (this
+# is exactly what stranded the README-only PR #114). A required check can
+# only *clear* if its check run is actually created, which requires the
+# workflow to trigger. So the workflow now ALWAYS triggers on PRs and main
+# pushes, and the cheap-vs-expensive decision is made INSIDE the jobs via the
+# `changes` detector below (docs-only -> the required jobs skip, and a job
+# skipped by its own `if:` reports a PASSING conclusion that satisfies the
+# gate; anything touching code runs the real clippy/test/audit).
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "postman/**"
-      - "sdks/**"
-      - "**/openapi.yaml"
-      - ".github/workflows/openapi-validation.yml"
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "postman/**"
-      - "sdks/**"
-      - "**/openapi.yaml"
-      - ".github/workflows/openapi-validation.yml"
   workflow_dispatch:
 
 env:
@@ -27,14 +26,120 @@ env:
 # Cancel any in-progress run for the same branch when a new push arrives.
 # This prevents two concurrent deploys from racing on the same Cloud Run
 # service and hitting GCP's optimistic-concurrency (ETag) conflict.
+#
+# Both required contexts are emitted by THIS single workflow, so any
+# superseding run re-reports both of them on the new head sha; a cancelled
+# run is always replaced by a fresh green (or real) one for the same context.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ─── Change detection (docs vs code) ────────────────────────────────────────
+  #
+  # Dependency-free classifier (git diff + grep, ~15s). It outputs a single
+  # boolean `code`. The DOCS set below mirrors the old workflow-level
+  # paths-ignore globs; a change is docs-only ONLY when EVERY changed file
+  # matches one of them. Everything else is CODE by fallthrough — Cargo.lock,
+  # Cargo.toml, **/*.rs, **/migrations/**.sql, Dockerfiles, rust-toolchain.toml,
+  # .cargo/config.toml, build.rs, and .github/workflows/rust.yml itself. This
+  # defaults CLOSED: an unrecognised file always runs full CI, so a dependency
+  # bump, a migration, a toolchain change, or a gate-weakening workflow edit can
+  # never masquerade as docs and merge unbuilt.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history so the PR merge-base and the push before-sha are both
+          # present locally; a shallow checkout would make the diff empty/error.
+          fetch-depth: 0
+
+      - name: Classify changed files (docs vs code)
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -u
+
+          emit() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "==> classification: code=$1"; }
+
+          # Docs allowlist, mirrored 1:1 from the old paths-ignore. NOTE it does
+          # NOT include .github/workflows/rust.yml — edits to this gate must run
+          # the gate. Only openapi-validation.yml (a different workflow) is docs.
+          DOCS_RE='(\.md$)|(^docs/)|(^postman/)|(^sdks/)|((^|/)openapi\.yaml$)|(^\.github/workflows/openapi-validation\.yml$)'
+
+          case "$EVENT_NAME" in
+            pull_request)
+              # Classify by the CUMULATIVE base...head diff (merge-base to head),
+              # never the per-push delta, so a later docs-only push on a PR whose
+              # earlier commit touched Rust is still correctly classified as code.
+              if [ -z "$PR_BASE_SHA" ] || [ -z "$PR_HEAD_SHA" ]; then
+                echo "Missing PR base/head sha; failing closed (code)."; emit true; exit 0
+              fi
+              git fetch --no-tags --quiet origin "$PR_BASE_SHA" "$PR_HEAD_SHA" 2>/dev/null || true
+              RANGE="$PR_BASE_SHA...$PR_HEAD_SHA"
+              ;;
+            push)
+              # New branch / force-push leaves an all-zero before-sha: fail closed.
+              if printf '%s' "$PUSH_BEFORE" | grep -Eq '^0+$'; then
+                echo "No usable before-sha (new branch/force push); failing closed (code)."; emit true; exit 0
+              fi
+              RANGE="$PUSH_BEFORE..$PUSH_AFTER"
+              ;;
+            *)
+              # workflow_dispatch or anything else: always run full CI.
+              echo "Event '$EVENT_NAME' is not pull_request/push; running full CI (code)."; emit true; exit 0
+              ;;
+          esac
+
+          if ! CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null); then
+            echo "git diff failed for range '$RANGE'; failing closed (code)."; emit true; exit 0
+          fi
+
+          if [ -z "$CHANGED" ]; then
+            echo "Empty diff for range '$RANGE'; failing closed (code)."; emit true; exit 0
+          fi
+
+          echo "Changed files in range '$RANGE':"
+          printf '  %s\n' $CHANGED
+
+          # Non-docs = any changed path that does NOT match the docs allowlist.
+          NON_DOCS=$(printf '%s\n' "$CHANGED" | grep -Ev "$DOCS_RE" || true)
+
+          if [ -n "$NON_DOCS" ]; then
+            echo "Non-docs (code) files present:"
+            printf '  %s\n' $NON_DOCS
+            emit true
+          else
+            echo "Every changed file is docs; test/audit will skip (skipped == passing)."
+            emit false
+          fi
+
   # ─── Lint & test ────────────────────────────────────────────────────────────
+  #
+  # Required context: "Lint and test" (branch protection keys on this exact
+  # string). Single, non-matrixed job so the emitted context is the bare job
+  # name, never "Lint and test (accounts-service)" or "CI/CD / Lint and test".
+  #
+  # Gate: runs for real whenever code changed OR the detector could not prove
+  # docs-only. `always()` is required so a FAILED/CANCELLED detector still lets
+  # this job evaluate (default `success()` gating would skip it — fail-open — on
+  # a detector hiccup). The `!= 'false'` test is fail-closed: only an explicit
+  # `code=false` skips; an empty/garbled output runs the full suite. On a
+  # docs-only change the job is skipped-by-conditional, which branch protection
+  # treats as a passing conclusion, so "Lint and test" clears green.
   test:
     name: Lint and test
+    needs: [changes]
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.code != 'false')
     runs-on: ubuntu-latest
 
     services:
@@ -116,6 +221,13 @@ jobs:
   # verification, and main still gets full coverage, now in parallel with the
   # test job rather than appended to it.
   #
+  # 2026-07-22: also gated on the `changes` detector. Removing the workflow-level
+  # paths-ignore means docs-only commits to main now trigger the workflow, but
+  # coverage must NOT burn ~19m of tarpaulin on a change that touched no code, so
+  # a docs-only main push skips this job (code == 'false'). `always()` keeps the
+  # gate fail-closed: a detector failure still runs coverage. Code pushes to main
+  # still get full coverage. This job never runs on PRs (event_name == 'push').
+  #
   # This job creates its own databases in its own postgres service container, so
   # the old "Reset per-service test databases before coverage" step is gone: it
   # existed only because tarpaulin previously ran after the test suite had
@@ -124,8 +236,9 @@ jobs:
   # empty by construction.
   coverage:
     name: Coverage
+    needs: [changes]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.changes.result != 'success' || needs.changes.outputs.code != 'false')
 
     services:
       postgres:
@@ -192,8 +305,22 @@ jobs:
           files: ./coverage/accounts/cobertura.xml,./coverage/contacts/cobertura.xml,./coverage/activities/cobertura.xml,./coverage/workflows/cobertura.xml,./coverage/connections/cobertura.xml,./coverage/opportunities/cobertura.xml,./coverage/reports/cobertura.xml,./coverage/documents/cobertura.xml,./coverage/spend/cobertura.xml,./coverage/projects/cobertura.xml,./coverage/audit/cobertura.xml
 
   # ─── Dependency security audit ──────────────────────────────────────────────
+  #
+  # Required context: "Security audit" (single, non-matrixed job — bare context
+  # name for branch protection).
+  #
+  # Gate: SAME `code` boolean as `test`, NOT a narrower rust-source predicate.
+  # cargo-audit keys entirely on Cargo.lock, and Cargo.lock/Cargo.toml are
+  # classified as code (they are not in the docs allowlist), so ANY dependency
+  # change — including a transitive bump that pulls in a RUSTSEC advisory — runs
+  # this job for real. A docs-only change cannot alter the dependency graph, so
+  # there is nothing for cargo-audit to check; the job is skipped-by-conditional
+  # and its passing conclusion satisfies the required context. `always()` +
+  # `!= 'false'` make it fail-closed on any detector failure (audit runs).
   audit:
     name: Security audit
+    needs: [changes]
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.code != 'false')
     runs-on: ubuntu-latest
     permissions:
       checks: write
@@ -224,6 +351,13 @@ jobs:
         run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
 
   # ─── Deploy to Google Cloud Run (main branch only) ─────────────────────────
+  #
+  # Unchanged. `needs: [test]` + main + push already rides the correct
+  # invariant: on a docs-only main push `test` is SKIPPED, and a job whose
+  # dependency is skipped is itself skipped under default success() gating, so
+  # deploy does NOT run (no 11-service redeploy for a README change). On a code
+  # push to main `test` runs and passes, so deploy runs. No `always()` here —
+  # that would break the skip-propagation this relies on.
   #
   # Required GitHub configuration:
   # - Repository variable GCP_PROJECT_ID: target Google Cloud project ID
