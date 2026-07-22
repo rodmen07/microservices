@@ -1,181 +1,126 @@
-# Microservices Workspace Specification
+# Microservices Workspace
 
 **Live site:** https://rodmen07.github.io/infraportal/
 
-This folder contains a multi-service ecosystem:
+A portfolio microservices platform: an 11-service CRM backend, each service an
+independently deployed Rust/Axum API on **PostgreSQL (Cloud SQL)** with JWT auth,
+shipped to **Google Cloud Run** via GitHub Actions (OIDC/WIF). This repository is
+the Rust Cargo workspace; the gateway, auth, AI, event, observability, and
+frontend components live in their own repos (see [Related repositories](#related-repositories)).
 
-- `backend-service` (Rust/Axum API + SQLite, repo folder: `backend-service`)
-- `ai-orchestrator-service` (Python planner microservice)
-- `frontend-service` (React/Vite TypeScript UI, repo folder: `frontend-service`)
-- `auth-service` (Python JWT issuance/verification microservice)
-- `accounts-service` (Rust/Axum account and tenant domain API)
-- `contacts-service` (Rust/Axum contact and lead domain API)
+## Services in this workspace
 
-The goal is to keep the platform easy to run locally while preserving stable cross-service contracts.
+All are Rust/Axum 0.8, PostgreSQL via `sqlx`, JWT-authenticated, and follow the
+[standard service pattern](#service-architecture). Ports below are the local
+defaults; in production `PORT` is injected by Cloud Run.
 
-## 1) System architecture
+| Service | Domain | Notable endpoints |
+|---|---|---|
+| `accounts-service` | Accounts and tenants | account/tenant CRUD (port 3010) |
+| `contacts-service` | Contacts and leads; validates `account_id` cross-service | contact CRUD (port 3011) |
+| `activities-service` | Activity records; validates `account_id`/`contact_id` cross-service | activity CRUD (port 3013) |
+| `opportunities-service` | Sales opportunities and pipeline stages | opportunity CRUD |
+| `automation-service` | Workflow automation rules | rule CRUD |
+| `integrations-service` | External-integration connection registry | connection CRUD |
+| `reporting-service` | Saved reports and dashboards | report CRUD, `/dashboard` |
+| `search-service` | Cross-service write-through search index | upsert/delete/query |
+| `audit-service` | Immutable audit-event trail of entity mutations across the platform | `/api/v1/audit-events` (`audit_events`: entity_type, entity_id, action, actor_id, payload) |
+| `projects-service` | Client-portal backend: client projects and project links | `/api/v1/projects`, `/api/v1/links/{id}` (port 3014) |
+| `spend-service` | Cloud-spend tracking with per-provider ingestion | `/api/v1/spend`, `/api/v1/spend/summary`, `/api/v1/spend/sync/{gcp,flyio,github,aws}` (port 3020) |
 
-### High-level architecture diagram
+Every service also exposes `GET /health` (process liveness, `{ "status": "ok" }`)
+and `GET /ready` (database readiness).
 
-```text
-         +----------------------+
-         |    frontend-service  |
-         | React/Vite UI        |
-         +----------+-----------+
-            |
-            | HTTP / hash-routed UX
-            v
-         +----------+-----------+
-         |   backend-service    |
-         | Rust/Axum API        |
-         | SQLite + JWT         |
-         +----+-------------+---+
-          |             |
-        plan requests |             | auth / domain calls
-          v             v
-        +-------------+--+   +------+------------------+
-        | ai-orchestrator |   | auth-service           |
-        | Python planner  |   | token issue / verify   |
-        +-----------------+   +------------------------+
+The canonical, up-to-date architecture reference and full version history live in
+[`CLAUDE.md`](CLAUDE.md) and [`ROADMAP.md`](ROADMAP.md).
 
-  +------------------- domain microservices -------------------+
-  | accounts | contacts | activities | automation | search     |
-  | opportunities | integrations | reporting                   |
-  +------------------------------------------------------------+
+## Service architecture
 
-  +---------------- deployment / delivery ---------------------+
-  | GitHub Actions -> Artifact Registry -> Cloud Run           |
-  +------------------------------------------------------------+
+All services follow one layout (the `accounts-service` structure is the reference):
+
+```
+<service>/
+  Cargo.toml
+  migrations/
+    0001_create_<table>.sql       # PostgreSQL DDL
+  src/
+    main.rs                       # entrypoint: read env, init AppState, bind listener
+    lib.rs                        # #[path] module declarations + re-exports
+    lib/
+      app_state.rs                # PgPool (+ reqwest::Client for cross-service calls)
+      auth.rs                     # JWT validation (identical across services)
+      models.rs                   # domain model, request/response DTOs, ApiError
+      router.rs                   # build_router(), build_cors_layer()
+      handlers/
+        mod.rs
+        health.rs
+        <resource>.rs             # CRUD handlers
 ```
 
-### Service boundaries
+Shared conventions:
 
-- **frontend-service** owns web UX, stateful task interactions, and goal visualization.
-- **backend-service** owns canonical task CRUD APIs, validation rules, and persistence.
-- **ai-orchestrator-service** owns provider-facing AI logic and converts goals to task lists.
-- **auth-service** owns token issuance/verification and centralized auth contract.
+- **Persistence:** PostgreSQL via `sqlx` 0.8 (`$N` placeholders, `ON CONFLICT` upserts,
+  `sqlx::migrate!` on startup). IDs are UUID-v4 `TEXT`; timestamps are ISO-8601 `TEXT`.
+- **Auth:** every protected handler validates a Bearer JWT via the shared `auth.rs`
+  (`AUTH_JWT_SECRET`, `AUTH_JWT_ALGORITHM` default `HS256`, `AUTH_ISSUER`).
+- **Errors:** a single envelope `{ code, message, details? }`, using `StatusCode` constants.
+- **Cross-service validation:** a service that references another's entity (e.g. contacts →
+  accounts) calls the upstream over HTTP with the caller's Bearer token, and **fails open**
+  when the upstream URL env var is unset (local dev without every service running).
+- **Tracing:** OpenTelemetry with a Cloud Trace exporter and graceful fallback, so a request
+  is traceable across services.
 
-### Request flow for planning
+See [`CLAUDE.md`](CLAUDE.md) for the exact dependency versions, axum 0.8 specifics, and the
+per-service upgrade checklist.
 
-1. Frontend sends a long-term goal to backend (`POST /api/v1/tasks/plan`).
-2. Backend calls orchestrator `POST /plan` via internal HTTP.
-3. Orchestrator calls provider APIs (OpenRouter-configured) and returns tasks.
-4. Backend returns tasks to frontend in stable JSON.
+## Local development
 
-### Core design principle
+`cargo` runs from the workspace root against all members:
 
-Provider details must stay isolated in `ai-orchestrator-service`; neither frontend nor backend should implement direct provider-specific planning logic.
+```bash
+cargo build
+cargo test
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+```
 
-## 2) Contract snapshot
+Each service defaults `DATABASE_URL` to
+`postgres://postgres:postgres@localhost:5432/<service-name>` locally. Start only the
+services a flow needs; cross-service validation fails open when an upstream URL is unset.
 
-### Orchestrator API
+## Deployment
 
-- `GET /health` -> `{ "status": "ok" }`
-- `POST /plan`
-  - Request: `{ "goal": string }`
-  - Response: `{ "tasks": string[] }`
+CI/CD (`.github/workflows/rust.yml`) builds and tests the workspace on every push and PR,
+then deploys the Rust services to **Google Cloud Run** and pushes images to **Artifact
+Registry**. Coverage runs on `main` only, in parallel with lint/test, to keep PR feedback fast.
 
-### Backend API (v1)
+- **Persistence:** Cloud SQL PostgreSQL 16 (`microservices-489413:us-south1:microservices-pg`);
+  each service connects to its own database on the shared instance over a Unix socket.
+- **Auth to GCP:** keyless via Workload Identity Federation (OIDC) — no long-lived credentials.
+- **Per-service config:** `DATABASE_URL` from a per-service Secret Manager secret
+  (`ACCOUNTS_DB_URL`, `CONTACTS_DB_URL`, …); `AUTH_JWT_SECRET` and `ALLOWED_ORIGINS` from
+  secrets/variables; `PORT` injected by Cloud Run.
 
-- `GET /health` (process liveness)
-- `GET /ready` (database readiness)
-- `GET /api/v1/tasks` (`limit`, `offset`, `completed`, `q`)
-- `POST /api/v1/tasks`
-- `POST /api/v1/tasks/plan`
-- `PATCH /api/v1/tasks/{id}`
-- `DELETE /api/v1/tasks/{id}`
+## Related repositories
 
-### Auth API (MVP)
+These components deploy alongside the workspace but are **separate git repositories**, not
+members of this Cargo workspace:
 
-- `GET /health` -> `{ "status": "ok" }`
-- `POST /auth/token`
-  - Request: `{ "subject": string, "roles": string[] }`
-  - Response: `{ "access_token": string, "token_type": "bearer", "expires_in": number }`
-- `POST /auth/verify`
-  - Request: `{ "token": string }`
-  - Response: `{ "active": boolean, "subject"?: string, "roles"?: string[], "exp"?: number, "issuer"?: string }`
+| Component | Stack | Role |
+|---|---|---|
+| `infraportal` | React 19 + Vite + TypeScript | Portfolio site and CRM/portal frontend (GitHub Pages) |
+| `go-gateway` | Go | API gateway: routing, rate limiting, tracing, CRM-event observation |
+| `auth-service` | Python/FastAPI | JWT issuance and verification |
+| `ai-orchestrator-service` | Python/FastAPI | AI planning/consulting proxy to the Anthropic Claude API |
+| `event-stream-service` | Go | Server-sent-events hub for live notifications |
+| `observaboard` | Django REST | CRM-event classification, alerting, and observability |
+| `task-api-service` | Rust/Axum | Original task API (the platform's first service) |
 
-### Backend invariants
+## Change-management guardrails
 
-- `title` required (trimmed non-empty)
-- `title` max length `120`
-- Task list ordering stable by `id ASC`
-- Non-2xx response envelope: `{ code, message, details? }`
-
-## 3) Environment and defaults
-
-### backend-service
-
-- Default bind: `0.0.0.0:3000`
-- Key env vars: `HOST`, `PORT`, `DATABASE_URL`, `AI_ORCHESTRATOR_PLAN_URL`
-- Default planner URL: `http://127.0.0.1:8081/plan`
-
-### ai-orchestrator-service
-
-- Default port: `8081` (`APP_PORT`)
-- Key env vars:
-  - `OPENROUTER_API_KEY`
-  - `OPENROUTER_MODEL` (default `google/gemma-3-4b-it:free`)
-  - `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`)
-  - `REQUEST_TIMEOUT_SECONDS` (default `30`)
-
-### auth-service
-
-- Default port: `8082` (`APP_PORT`)
-- Key env vars:
-  - `AUTH_JWT_SECRET`
-  - `AUTH_JWT_ALGORITHM` (default `HS256`)
-  - `AUTH_TOKEN_EXPIRES_SECONDS` (default `3600`)
-  - `AUTH_ISSUER` (default `auth-service`)
-
-### frontend-service
-
-- Uses `VITE_API_BASE_URL` for backend base URL
-- Local default backend: `http://localhost:3000`
-- Production fallback should point to deployed backend URL
-
-## 4) Local development order
-
-1. Start `ai-orchestrator-service` on port `8081`.
-2. Start `backend-service` on port `3000` (repo folder: `backend-service`, planner URL set if non-default).
-3. Start `frontend-service` (repo folder: `frontend-service`) and verify planner + CRUD flows.
-
-## 5) Quality and CI expectations
-
-### backend-service
-
-- `cargo fmt --all`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test`
-
-### ai-orchestrator-service
-
-- `pytest`
-- Preserve timeout + error handling behavior for provider calls
-
-### frontend-service
-
-- `npm run build`
-- Keep TypeScript strict-mode compatibility
-
-## 6) Deployment notes
-
-- Frontend is configured for GitHub Pages deployment from `dist/`.
-- Frontend base path must remain compatible with `/frontend-service/` (GitHub repo slug) unless deployment strategy changes.
-- Backend + orchestrator can be deployed independently; planner URL wiring is done through `AI_ORCHESTRATOR_PLAN_URL` in backend.
-
-## 7) Change management guardrails
-
-- Prefer additive changes over breaking contract edits.
-- If changing API payloads, update all impacted services in one change set.
-- Keep environment variable names stable unless migration guidance is added.
-- Preserve Decap CMS paths in frontend unless explicitly changing CMS strategy:
-  - `public/admin/config.yml`
-  - `public/content/site.json`
-  - `/admin/` (dev) and `/frontend-service/admin/` (Pages)
-
-## 8) Definition of done for cross-service changes
-
-- Service-local tests/build succeed.
-- Contracts remain consistent across frontend, backend, and orchestrator.
-- README and instructions updated when behavior/config/contracts change.
+- Prefer additive changes over breaking contract edits; if a payload changes, update every
+  impacted service in one change set.
+- Keep environment-variable names stable unless migration guidance ships with the change.
+- A cross-service change is done when: service-local `cargo test`/`build` succeed, contracts
+  stay consistent across the services involved, and this README plus [`CLAUDE.md`](CLAUDE.md)/
+  [`ROADMAP.md`](ROADMAP.md) are updated when behavior, config, or contracts change.
