@@ -2,7 +2,7 @@
 
 Adoption guide for the InfraPortal platform rate limits. Created 2026-07-18 as part of v1.16.2 (Developer Experience). Companion to the [platform API guide](API.md) and the per-service OpenAPI specs.
 
-> **Runtime status:** all runtime endpoints have been offline since 2026-06-04, when the platform infrastructure was decommissioned to true zero (see `ROADMAP.md`). This guide documents the rate-limiting contract **as implemented in go-gateway** (`internal/middleware/ratelimit.go` and `ratelimit_redis.go`, shipped in v1.10), verified by that repo's tests, not against live endpoints.
+> **Runtime status:** the platform is deployed on Google Cloud Run, and live per-service health is published on the [platform status board](https://rodmen07.github.io/infraportal/#/status). This guide documents the rate-limiting contract **as implemented in go-gateway** (`internal/middleware/ratelimit.go` and `ratelimit_redis.go`, shipped in v1.10), verified by that repo's tests.
 
 ---
 

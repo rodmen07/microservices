@@ -8,25 +8,39 @@ Canonical forward-looking roadmap for the InfraPortal platform (the microservice
 
 ---
 
-## Infrastructure status: DECOMMISSIONED (2026-06-04)
+## Infrastructure status: LIVE on Cloud Run (rebuilt 2026-07-21, re-verified 2026-07-25)
 
-On 2026-06-04 all runtime infrastructure was decommissioned to true zero:
+The 2026-06-04 decommission was REVERSED for the Cloud Run half of the platform. Do not
+read this section as a standing claim either way: re-verify with a command before
+asserting that the platform is up or down.
 
-- Cloud SQL instance deleted. All runtime data is permanently gone (no backups).
+- Cloud SQL was rebuilt on 2026-07-21 as `microservices-489413:us-south1:microservices-pg` (POSTGRES_16, db-f1-micro, us-south1). The data destroyed on 2026-06-04 is still permanently gone; the databases were recreated empty and sqlx migrations ran on first request.
+- All eleven workspace services are deployed to Cloud Run and returned HTTP 200 on `/health` when this section was last verified (2026-07-25).
+- Every merge to `main` deploys all eleven services. A post-deploy `/health` smoke test (PR #111) fails the deploy job if a service does not serve, so "green CI, dead platform" cannot recur silently.
+- Live per-service health is published on the platform status board: <https://rodmen07.github.io/infraportal/#/status>. Treat that board, not this file, as the authority on what is serving right now.
+
+Still gone, and still needing a user decision to change:
+
+- The Fly.io half (task-api, ai-orchestrator, observaboard, event-stream-service volumes) was destroyed on 2026-06-04 and was not rebuilt. `backend-service-rodmen07-v2.fly.dev` does not resolve.
+- The GCP billing export to BigQuery was never recreated, so spend-service `pull_gcp_billing` has no dataset to read.
+
+Consequences for work in this repo:
+
+- Live endpoints ARE a legitimate verification target. The old bar ("never verify against a live endpoint") is retired; it is what let all eleven services serve HTTP 503 for roughly seven weeks under fully green CI.
+- Merging to `main` is a production deploy of eleven services. Only merge green.
+- Read-only cloud probes are allowed. Creating or mutating billable infrastructure still requires an explicit user instruction for that action, with the cost stated first.
+- Recurring cost now accruing: Cloud SQL db-f1-micro + 10GB HDD in us-south1, plus Artifact Registry storage that grows by eleven images per merge.
+
+### Historical: the 2026-06-04 decommission (superseded 2026-07-21)
+
+Kept as the committed record of what happened, not as current state:
+
+- Cloud SQL instance deleted. All runtime data was permanently lost (no backups); the rebuild did not restore it.
 - Both Artifact Registry repos deleted.
-- All Fly.io machines and volumes destroyed.
-- Every Cloud Run and Fly endpoint is offline.
+- All Fly.io machines and volumes destroyed. This half is still down.
+- Every Cloud Run and Fly endpoint went offline.
 
-Consequences:
-
-- Nothing may be deployed and no live endpoint can be exercised.
-- The GitHub Actions OIDC deploy pipelines in this repo are inert (nothing to deploy to).
-- The chaos runbook (`docs/chaos-runbook.md`), the v1.15 canary/rollback machinery, and the v1.15 SLO monitoring cannot currently be exercised. They remain valid as reference material.
-- The verification bar for all platform work is build + tests + CI. Never verify against a live endpoint.
-- The only surface that still deploys is the infraportal frontend, via GitHub Pages on merge to main.
-- Rebuilding infra would mean recreating the database and redeploying from source, not restarting anything. It is an explicit USER-ONLY decision that has not been made.
-
-This section is the first committed record of the decommission. Older docs in this repo (the `CLAUDE.md` architecture prose, the `README.md` deployment notes, `docs/chaos-runbook.md`) still describe live infrastructure; read those passages as historical.
+Older docs in this repo (the `CLAUDE.md` architecture prose, the `README.md` deployment notes, `docs/chaos-runbook.md`) describe live Cloud Run infrastructure; for the Cloud Run half that is accurate again, and for the Fly half it is still historical.
 
 ---
 
@@ -107,16 +121,16 @@ After v1.16.5: the v1.17 theme (Interactive API Playground, [`docs/design/V1_17_
 ## Later / candidates (not scheduled)
 
 - Quick win (doable now): find and fix the stale DynamoDB blurb on the pinned portfolio repo README. Locate the repo first; likely backend-service or infraportal (which has `DynamoDbCaseStudyPage.tsx`).
-- Docs truth pass (doable now): correct this repo's `README.md` (still claims backend-service uses SQLite, migrated to PostgreSQL in v1.5.0 on 2026-05-08; its service list names only 2 of the 11 workspace service crates, accounts and contacts, alongside 4 non-workspace services) and the `CLAUDE.md` architecture prose (claims live Cloud SQL / Cloud Run; gives the frontend location as `d:/Projects/microservices/frontend-service` when the actual repo is `d:/Projects/Portfolio/infraportal`) to note the 2026-06-04 decommission and offline status.
+- Docs truth pass (doable now): correct this repo's `README.md` (still claims backend-service uses SQLite, migrated to PostgreSQL in v1.5.0 on 2026-05-08; its service list names only 2 of the 11 workspace service crates, accounts and contacts, alongside 4 non-workspace services) and the `CLAUDE.md` architecture prose (gives the frontend location as `d:/Projects/microservices/frontend-service` when the actual repo is `d:/Projects/Portfolio/infraportal`). Its live Cloud SQL / Cloud Run description is accurate again as of the 2026-07-21 rebuild, so that half needs no correction.
 - Frontend follow-up (doable once v1.16.1/.2 specs exist): restore the API Docs nav link and point the Swagger UI page at the committed specs. Tracked in the infraportal roadmap.
 
 ---
 
 ## BLOCKED (do not pick up)
 
-- **Cost Intelligence** (old plan v1.16.5 through v1.16.7: GCP Billing dashboards, budget alerts, anomaly detection, Recommender API): BLOCKED, requires live GCP billing data, which no longer exists after the 2026-06-04 decommission.
-- **Client email notifications and activity feed backend** (old plan v1.16.10): BLOCKED, requires a live backend and email service.
-- **Anything requiring live infrastructure**: Cloud Run or Fly redeploys, live-endpoint verification, canary / SLO / chaos-runbook exercises, Cloud SQL recreation. BLOCKED behind the infra-rebuild decision, which is USER-ONLY and has not been made.
+- **Cost Intelligence** (old plan v1.16.5 through v1.16.7: GCP Billing dashboards, budget alerts, anomaly detection, Recommender API): BLOCKED 2026-06-04, narrowed 2026-07-25. The database half of the blocker is gone (Cloud SQL rebuilt 2026-07-21). What remains is specific: there is no GCP billing export to BigQuery, so `spend-service/src/lib/sync.rs::pull_gcp_billing` has no `GCP_BILLING_DATASET` / `GCP_BILLING_TABLE` to read. CLEARS WHEN: a billing export dataset exists and those env vars are set on spend-service.
+- **Client email notifications and activity feed backend** (old plan v1.16.10): BLOCKED 2026-06-04, narrowed 2026-07-25. A live backend exists again (Cloud Run, rebuilt 2026-07-21); no email-sending service is configured. CLEARS WHEN: an email provider and its credentials are chosen and set.
+- **Fly.io-hosted surfaces only**: task-api, ai-orchestrator, observaboard, and the event-stream hub were destroyed on 2026-06-04 and reviving them creates billable infrastructure, so it stays USER-ONLY. Cloud Run redeploys, live-endpoint verification, and the canary / SLO / chaos-runbook exercises are NO LONGER BLOCKED: the infra-rebuild decision was made on 2026-07-21 and the Cloud Run half is serving.
 
 ---
 

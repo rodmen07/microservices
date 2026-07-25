@@ -2,7 +2,7 @@
 
 Ready-to-import Postman artifacts for the InfraPortal CRM platform API, generated from the eleven per-service OpenAPI 3.0.3 specs in this repo (v1.16.3 PR2). Companion to the [platform API guide](../docs/API.md) and the [rate limiting guide](../docs/RATE_LIMITING.md).
 
-> **Runtime status:** all runtime endpoints have been offline since 2026-06-04, when the platform infrastructure was decommissioned to true zero (see `ROADMAP.md`). The collection documents the API contract **as implemented in code**; use it against a locally running stack, not the historical cloud URLs.
+> **Runtime status:** the eleven services are deployed on Google Cloud Run, and live per-service health is published on the [platform status board](https://rodmen07.github.io/infraportal/#/status). The collection documents the API contract **as implemented in code**; every `/api/v1` route requires a bearer JWT, so the collection is easiest to run against a locally running stack.
 
 ## Files
 

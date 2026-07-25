@@ -2,7 +2,7 @@
 
 TypeScript SDK for the InfraPortal CRM platform API (v1.16.3 PR1). A small hand-written fetch client plus types generated from the eleven per-service OpenAPI 3.0.3 specs in this repo.
 
-> **Runtime status:** all platform runtime endpoints have been offline since 2026-06-04, when the infrastructure was decommissioned to true zero (see `ROADMAP.md` in the repo root). This SDK targets the documented API contract, as captured in the per-service specs and verified by the service test suites, not live endpoints. It also works against a locally run service or gateway.
+> **Runtime status:** the platform services are deployed on Google Cloud Run, and live per-service health is published on the [platform status board](https://rodmen07.github.io/infraportal/#/status). This SDK targets the documented API contract, as captured in the per-service specs and verified by the service test suites. It also works against a locally run service or gateway.
 
 > **Publishing:** npm publishing is deliberately not configured yet. There are no publish scripts in `package.json`, and the license field is intentionally absent until a license is chosen for the repo; both are pre-publish decisions for a later PR.
 
