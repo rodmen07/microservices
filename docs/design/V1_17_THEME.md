@@ -12,6 +12,8 @@
 
 All runtime infrastructure was decommissioned to true zero on 2026-06-04. Nothing deploys except the infraportal frontend (GitHub Pages on merge to main), and the verification bar for platform work is build + tests + CI, never a live endpoint. The infra-rebuild decision is USER-ONLY and has not been made.
 
+> **SUPERSEDED 2026-07-25.** The paragraph above records the constraint as it stood when this theme was planned and is kept for that reason. It is no longer true: the user made the infra-rebuild decision on 2026-07-21, Cloud SQL was rebuilt, and all eleven services deploy to Cloud Run and answer `/health` with HTTP 200. Live endpoints are a legitimate verification target again. See the Infrastructure status section of [`ROADMAP.md`](../../ROADMAP.md).
+
 The portfolio exists for the job and contract hunt. Its audience is two people:
 
 1. **The visitor**: a prospective employer or client who opens the deployed site and spends minutes, not hours. They judge what they can SEE.

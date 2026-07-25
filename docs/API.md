@@ -2,7 +2,7 @@
 
 Getting-started guide for the InfraPortal platform API. Created 2026-07-18 as part of v1.16.1 (OpenAPI Specs for All Services).
 
-> **Runtime status:** all runtime endpoints have been offline since 2026-06-04, when the platform infrastructure was decommissioned to true zero (see `ROADMAP.md`). The OpenAPI specs indexed below document the API contract **as implemented in code**, verified by build + tests + CI, not against live endpoints. The example base URLs are historical.
+> **Runtime status:** the eleven services are deployed on Google Cloud Run, and live per-service health is published on the [platform status board](https://rodmen07.github.io/infraportal/#/status). The OpenAPI specs indexed below document the API contract **as implemented in code**, verified by build + tests + CI; treat the status board, not this document, as the authority on what is serving right now.
 
 ---
 

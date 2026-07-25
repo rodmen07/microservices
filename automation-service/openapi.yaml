@@ -10,8 +10,9 @@ info:
 
     This spec documents the API contract as implemented in code
     (src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).
-    All runtime endpoints have been offline since 2026-06-04, when the platform
-    infrastructure was decommissioned to zero. See ROADMAP.md in the repo root.
+    Runtime status is not asserted in this document: the deployed base URL is
+    listed under `servers` below, and live per-service health is published on
+    the platform status board at https://rodmen07.github.io/infraportal/#/status.
 
     Authentication: every /api/v1 route validates a bearer JWT in the handler
     and additionally requires the "admin" role. Requests without a valid token
@@ -39,7 +40,7 @@ externalDocs:
   url: "https://github.com/rodmen07/microservices/blob/main/docs/API.md"
 servers:
   - url: "https://automation-service-5gcrg4oiza-uc.a.run.app"
-    description: "Historical Cloud Run deployment. Offline since 2026-06-04."
+    description: "Cloud Run deployment. Live health is published on the platform status board."
   - url: "http://localhost:8080"
     description: "Local development (default HOST 0.0.0.0, default PORT 8080)."
 tags:
