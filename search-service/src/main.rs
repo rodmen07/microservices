@@ -39,25 +39,17 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
         .unwrap_or(8080);
-    let database_url =
-        env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://search.db".to_string());
+    let database_url = env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/documents".to_string());
     let replica_url = env::var("DATABASE_REPLICA_URL").ok();
 
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .expect("invalid HOST/PORT combination");
 
-    let state = match AppState::with_read_replica(&database_url, replica_url.as_deref()).await {
-        Ok(state) => state,
-        Err(err) => {
-            eprintln!(
-                "failed to initialise database at {database_url}: {err}; falling back to in-memory sqlite"
-            );
-            AppState::from_database_url("sqlite::memory:")
-                .await
-                .expect("failed to initialise fallback in-memory database")
-        }
-    };
+    let state = AppState::with_read_replica(&database_url, replica_url.as_deref())
+        .await
+        .expect("failed to initialise database");
 
     let app = build_router(state);
 
