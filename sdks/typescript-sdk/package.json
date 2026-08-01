@@ -2,6 +2,7 @@
   "name": "@rodmen07/infraportal-sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for the InfraPortal CRM platform API: typed fetch client with gateway-aware retry, rate-limit header parsing, and types generated from the per-service OpenAPI 3.0.3 specs.",
+  "license": "MIT",
   "type": "module",
   "private": false,
   "main": "./dist/index.js",
@@ -14,7 +15,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
