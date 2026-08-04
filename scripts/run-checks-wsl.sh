@@ -21,39 +21,31 @@ for arg in "$@"; do
   esac
 done
 
+# Workspace service crate -> its logical database, matching the CI job list
+# in .github/workflows/rust.yml exactly (same crates, same database names).
+# A local PostgreSQL at localhost:5432 provides them (docker-compose up db
+# creates the databases via scripts/postgres-init/).
 services=(
-  "accounts-service"
-  "activities-service"
-  "automation-service"
-  "contacts-service"
-  "integrations-service"
-  "opportunities-service"
-  "reporting-service"
-  "search-service"
-  "standalones/backend-service"
+  "accounts-service:accounts"
+  "contacts-service:contacts"
+  "activities-service:activities"
+  "automation-service:workflows"
+  "integrations-service:connections"
+  "opportunities-service:opportunities"
+  "reporting-service:reports"
+  "search-service:documents"
+  "spend-service:spend"
+  "projects-service:projects"
+  "audit-service:audit"
 )
-
-postgres_integration_services=(
-  "accounts-service"
-  "activities-service"
-  "contacts-service"
-)
-
-requires_test_database() {
-  local svc="$1"
-  for pg_svc in "${postgres_integration_services[@]}"; do
-    if [[ "$svc" == "$pg_svc" ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
 
 echo "==> Rust checks root: $ROOT"
 
 failures=()
 
-for service in "${services[@]}"; do
+for entry in "${services[@]}"; do
+  service="${entry%%:*}"
+  database="${entry##*:}"
   service_path="$ROOT/$service"
 
   if [[ ! -f "$service_path/Cargo.toml" ]]; then
@@ -64,14 +56,10 @@ for service in "${services[@]}"; do
   echo "==> $service"
   if (
     cd "$service_path"
+    export DATABASE_URL="postgres://postgres:postgres@localhost:5432/$database"
     cargo fmt --all
     cargo clippy --all-targets --all-features -- -D warnings
-    if requires_test_database "$service" && [[ -z "${TEST_DATABASE_URL:-}" ]]; then
-      echo "==> TEST_DATABASE_URL is unset; running library tests only for $service"
-      cargo test --lib
-    else
-      cargo test
-    fi
+    cargo test
   ); then
     echo "==> PASS $service"
   else

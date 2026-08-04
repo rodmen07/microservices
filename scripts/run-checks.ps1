@@ -31,17 +31,17 @@ function Test-CommandExists($name) {
     return $null -ne (Get-Command $name -ErrorAction SilentlyContinue)
 }
 
-function Invoke-RustChecks($servicePath) {
+function Invoke-RustChecks($servicePath, $databaseName) {
     if (-not (Test-Path (Join-Path $servicePath "Cargo.toml"))) { return }
     $context = "Rust $servicePath"
     Step "Rust checks: $servicePath"
 
-    $svcTarget = Join-Path $servicePath 'target'
-    if (-not (Test-Path $svcTarget)) { New-Item -ItemType Directory -Path $svcTarget | Out-Null }
-    $svcDb = Join-Path $svcTarget 'test.db'
-    $databaseUrl = $svcDb -replace '\\', '/'
-    if ($databaseUrl -match '^[A-Za-z]:') { $databaseUrl = '/' + $databaseUrl }
-    $env:TEST_DATABASE_URL = "sqlite:///$databaseUrl"
+    # Mirror CI (.github/workflows/rust.yml): every service compiles sqlx with
+    # postgres-only drivers and gets its own logical database on a local
+    # PostgreSQL at localhost:5432 (docker-compose up db creates them via
+    # scripts/postgres-init/). A drift guard in accounts-service/tests/
+    # scans this file, so keep the URLs postgres.
+    $env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/$databaseName"
 
     Push-Location $servicePath
     try {
@@ -132,33 +132,29 @@ if (-not $SkipRust) {
     }
 }
 
-$rustServices = @(
-    "accounts-service",
-    "activities-service",
-    "automation-service",
-    "contacts-service",
-    "integrations-service",
-    "opportunities-service",
-    "reporting-service",
-    "search-service",
-    "standalones\backend-service"
-)
-
-# Pass common environment variables into Rust service tests so SQLite tests do not fail unexpectedly.
-if (-not $env:AUTH_JWT_SECRET) { $env:AUTH_JWT_SECRET = 'dev-insecure-secret-change-me' }
-if (-not $env:TEST_DATABASE_URL) {
-    $workDir = (Get-Location).Path
-    $dbDir = Join-Path $workDir 'target'
-    if (-not (Test-Path $dbDir)) { New-Item -ItemType Directory -Path $dbDir | Out-Null }
-    $dbFile = Join-Path $dbDir 'tests.sqlite'
-    $dbFilePath = $dbFile -replace '\\', '/'
-    if ($dbFilePath -match '^[A-Za-z]:') { $dbFilePath = '/' + $dbFilePath }
-    $env:TEST_DATABASE_URL = "sqlite:///$dbFilePath"
+# Workspace service crate -> its logical database, matching the CI job list
+# in .github/workflows/rust.yml exactly (same crates, same database names).
+$rustServices = [ordered]@{
+    "accounts-service"      = "accounts"
+    "contacts-service"      = "contacts"
+    "activities-service"    = "activities"
+    "automation-service"    = "workflows"
+    "integrations-service"  = "connections"
+    "opportunities-service" = "opportunities"
+    "reporting-service"     = "reports"
+    "search-service"        = "documents"
+    "spend-service"         = "spend"
+    "projects-service"      = "projects"
+    "audit-service"         = "audit"
 }
 
+# Pass common environment variables into Rust service tests, mirroring CI.
+if (-not $env:AUTH_JWT_SECRET) { $env:AUTH_JWT_SECRET = 'dev-insecure-secret-change-me' }
+if (-not $env:ALLOWED_ORIGINS) { $env:ALLOWED_ORIGINS = 'http://localhost:5173' }
+
 if (-not $SkipRust) {
-    foreach ($svc in $rustServices) {
-        Invoke-RustChecks (Join-Path $Root $svc)
+    foreach ($svc in $rustServices.Keys) {
+        Invoke-RustChecks (Join-Path $Root $svc) $rustServices[$svc]
     }
 }
 
