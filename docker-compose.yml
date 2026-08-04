@@ -1,13 +1,36 @@
 # Local dev environment — all backend services
-# Frontend runs separately: cd standalones/frontend-service && npm run dev
-# Uses .env.local in frontend-service for URLs pointing at these containers.
+# Frontend runs separately: the React app lives in the infraportal repo
+# (d:/Projects/Portfolio/infraportal) and points at these containers via env.
 #
 # Usage:
 #   docker-compose up --build        # build + start everything
 #   docker-compose up accounts contacts opportunities activities  # subset
 #   docker-compose down
+#
+# Persistence: the `db` service mirrors CI (.github/workflows/rust.yml):
+# postgres:16, user/password postgres/postgres, one logical database per
+# service, created on first boot by scripts/postgres-init/. The workspace
+# services compile sqlx with postgres-only drivers, so DATABASE_URL must be
+# postgres:// — any other engine's URL can never connect. A drift guard in
+# accounts-service/tests/ scans this file, so keep the URLs postgres.
 
 services:
+
+  # ── Shared PostgreSQL (mirrors the CI service container) ──────────────────
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # ── Rust workspace services ────────────────────────────────────────────────
   # All build from workspace root context (required for cargo workspace)
@@ -20,9 +43,12 @@ services:
       - "3010:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/accounts"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
 
   contacts:
     build:
@@ -32,10 +58,13 @@ services:
       - "3011:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/contacts"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
       ACCOUNTS_SERVICE_URL: "http://accounts:8080"
+    depends_on:
+      db:
+        condition: service_healthy
 
   opportunities:
     build:
@@ -45,9 +74,12 @@ services:
       - "3012:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/opportunities"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
 
   activities:
     build:
@@ -57,9 +89,12 @@ services:
       - "3013:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/activities"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
 
   search:
     build:
@@ -69,9 +104,12 @@ services:
       - "8083:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/documents"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
 
   reporting:
     build:
@@ -81,9 +119,12 @@ services:
       - "8086:8080"
     environment:
       PORT: "8080"
-      DATABASE_URL: "sqlite::memory:"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/reports"
       AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
       ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
 
   # ── Go SSE hub ─────────────────────────────────────────────────────────────
 
