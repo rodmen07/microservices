@@ -150,6 +150,3 @@ services:
       DEBUG: "true"
       ALLOWED_HOSTS: "localhost,127.0.0.1"
       ALLOWED_ORIGINS: "http://localhost:5173"
-
-# BROKEN FIXTURE (L-001 on/off proof, will be reverted): the line below must redden CI
-#      DATABASE_URL: "sqlite::memory:"
