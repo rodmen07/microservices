@@ -434,3 +434,82 @@ fn github_storage_notes_carry_the_volatile_detail() {
     assert!(day_17.contains("17"), "expected days left in notes, got: {day_17}");
     assert!(day_17.contains("1.2"), "expected GB estimate in notes, got: {day_17}");
 }
+
+// ---------------------------------------------------------------------------
+// SPEND-REFRESH-1 regression test.
+//
+// The monthly-granularity syncs (Fly.io, GitHub, AWS) used to write
+// `ON CONFLICT DO NOTHING` keyed on (platform, date, service_label). The
+// first sync of a month created the row; every later sync in the same month
+// hit the conflict, did nothing, and `amount_usd` froze at whatever was
+// observed first — a real running total, e.g. GitHub Actions minutes
+// climbing through the month, silently stopped updating after day one.
+// `upsert_spend_record` now does `DO UPDATE` instead. This proves the
+// property directly against a real Postgres connection, not just a source
+// read: a second call for the same key must overwrite the first amount.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn monthly_sync_upsert_refreshes_the_running_total_instead_of_freezing() {
+    let pool = sqlx::PgPool::connect(&test_database_url())
+        .await
+        .expect("failed to connect to test database");
+    // Run migrations directly rather than relying on another test's `test_app()`
+    // call to have done it first — test execution order is not guaranteed.
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
+    // A label unique to this test run so it can never collide with another
+    // test's rows or a previous run's leftovers under the same dedup key.
+    let label = format!("test-refresh-{}", uuid::Uuid::new_v4());
+    let date = "2026-04-01";
+
+    spend_service::sync::upsert_spend_record(
+        &pool,
+        spend_service::sync::SpendRecordUpsert {
+            platform: "flyio",
+            date,
+            amount_usd: 10.0,
+            granularity: "monthly",
+            service_label: &label,
+            source: "flyio_graphql",
+            notes: None,
+            now: "2026-04-01T00:00:00Z",
+        },
+    )
+    .await
+    .expect("first upsert (month-open value) failed");
+
+    spend_service::sync::upsert_spend_record(
+        &pool,
+        spend_service::sync::SpendRecordUpsert {
+            platform: "flyio",
+            date,
+            amount_usd: 25.0,
+            granularity: "monthly",
+            service_label: &label,
+            source: "flyio_graphql",
+            notes: None,
+            now: "2026-04-15T00:00:00Z",
+        },
+    )
+    .await
+    .expect("second upsert (mid-month refresh) failed");
+
+    let amount: f64 = sqlx::query_scalar(
+        "SELECT amount_usd FROM spend_records WHERE platform = $1 AND date = $2 AND service_label = $3",
+    )
+    .bind("flyio")
+    .bind(date)
+    .bind(&label)
+    .fetch_one(&pool)
+    .await
+    .expect("row missing after upsert");
+
+    assert_eq!(
+        amount, 25.0,
+        "a later sync in the same month must refresh the total (25.0), not freeze at the first value observed (10.0)"
+    );
+}

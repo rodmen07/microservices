@@ -8,6 +8,61 @@ use uuid::Uuid;
 use crate::models::SyncResult;
 
 // ---------------------------------------------------------------------------
+// Shared monthly upsert (SPEND-REFRESH-1)
+// ---------------------------------------------------------------------------
+//
+// The monthly-granularity syncs (Fly.io, GitHub, AWS) key each row on
+// (platform, date, service_label) via the `idx_spend_dedup` partial unique
+// index, with `date` pinned to the first of the current month. Before this
+// fix every one of them wrote `ON CONFLICT DO NOTHING`, so the FIRST sync of
+// a month created the row and every later sync in the same month was a
+// silent no-op: `amount_usd` froze at whatever was observed first and never
+// caught up to the real running total for the rest of the month. GCP is
+// deliberately excluded — its sync is daily-granularity keyed on the real
+// usage date, so each day gets its own row and there is nothing to refresh.
+//
+// This upserts instead: a later sync for the same (platform, date,
+// service_label) refreshes `amount_usd`/`notes`/`updated_at` in place.
+// `created_at` is left untouched by the update (it is not in the SET list),
+// so the original first-seen timestamp survives a refresh.
+
+/// Fields for one `upsert_spend_record` call, bundled into a struct instead
+/// of nine positional arguments (`clippy::too_many_arguments`).
+pub struct SpendRecordUpsert<'a> {
+    pub platform: &'a str,
+    pub date: &'a str,
+    pub amount_usd: f64,
+    pub granularity: &'a str,
+    pub service_label: &'a str,
+    pub source: &'a str,
+    pub notes: Option<&'a str>,
+    pub now: &'a str,
+}
+
+pub async fn upsert_spend_record(
+    pool: &PgPool,
+    record: SpendRecordUpsert<'_>,
+) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+         ON CONFLICT (platform, date, service_label) WHERE service_label IS NOT NULL
+         DO UPDATE SET amount_usd = EXCLUDED.amount_usd, notes = EXCLUDED.notes, updated_at = EXCLUDED.updated_at",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(record.platform)
+    .bind(record.date)
+    .bind(record.amount_usd)
+    .bind(record.granularity)
+    .bind(record.service_label)
+    .bind(record.source)
+    .bind(record.notes)
+    .bind(record.now)
+    .execute(pool)
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // GCP BigQuery billing sync
 // ---------------------------------------------------------------------------
 
@@ -372,20 +427,20 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
 
         let amount_usd = org.credit_balance as f64 / 100.0;
         let label = format!("Fly.io ({})", org.slug);
-        let id = Uuid::new_v4().to_string();
 
-        match sqlx::query(
-            "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-             VALUES ($1, 'flyio', $2, $3, 'monthly', $4, 'flyio_graphql', NULL, $5, $6)
-             ON CONFLICT DO NOTHING",
+        match upsert_spend_record(
+            pool,
+            SpendRecordUpsert {
+                platform: "flyio",
+                date: &month_date,
+                amount_usd,
+                granularity: "monthly",
+                service_label: &label,
+                source: "flyio_graphql",
+                notes: None,
+                now: &now_str,
+            },
         )
-        .bind(&id)
-        .bind(&month_date)
-        .bind(amount_usd)
-        .bind(&label)
-        .bind(&now_str)
-        .bind(&now_str)
-        .execute(pool)
         .await
         {
             Ok(r) => {
@@ -426,7 +481,8 @@ struct GitHubStorageUsage {
 
 // `service_label` participates in the `idx_spend_dedup` unique index
 // (platform, date, service_label) that every sync relies on for its
-// `ON CONFLICT DO NOTHING` to work. It therefore MUST be stable across runs.
+// upsert (see `upsert_spend_record` above) to key on. It therefore MUST be
+// stable across runs.
 //
 // These labels used to embed live usage figures — "GitHub Actions (412/2000 min,
 // 0 paid)" and "GitHub Storage (1.2 GB est., 17 days left)". Both change between
@@ -507,14 +563,20 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                 let amount_usd = paid * 0.008;
                 let notes = github_actions_notes(minutes, usage.included_minutes, paid);
                 if amount_usd > 0.0 {
-                    let id = Uuid::new_v4().to_string();
-                    match sqlx::query(
-                        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', $7, $5, $6)
-                         ON CONFLICT DO NOTHING",
+                    match upsert_spend_record(
+                        pool,
+                        SpendRecordUpsert {
+                            platform: "github",
+                            date: &month_date,
+                            amount_usd,
+                            granularity: "monthly",
+                            service_label: GITHUB_ACTIONS_LABEL,
+                            source: "github_api",
+                            notes: Some(&notes),
+                            now: &now_str,
+                        },
                     )
-                    .bind(&id).bind(&month_date).bind(amount_usd).bind(GITHUB_ACTIONS_LABEL).bind(&now_str).bind(&now_str).bind(&notes)
-                    .execute(pool).await
+                    .await
                     {
                         Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
                         Err(e) => result.errors.push(format!("insert error (actions): {e}")),
@@ -547,14 +609,20 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                         usage.estimated_storage_for_month,
                         usage.days_left_in_billing_cycle,
                     );
-                    let id = Uuid::new_v4().to_string();
-                    match sqlx::query(
-                        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-                         VALUES ($1, 'github', $2, $3, 'monthly', $4, 'github_api', $7, $5, $6)
-                         ON CONFLICT DO NOTHING",
+                    match upsert_spend_record(
+                        pool,
+                        SpendRecordUpsert {
+                            platform: "github",
+                            date: &month_date,
+                            amount_usd,
+                            granularity: "monthly",
+                            service_label: GITHUB_STORAGE_LABEL,
+                            source: "github_api",
+                            notes: Some(&notes),
+                            now: &now_str,
+                        },
                     )
-                    .bind(&id).bind(&month_date).bind(amount_usd).bind(GITHUB_STORAGE_LABEL).bind(&now_str).bind(&now_str).bind(&notes)
-                    .execute(pool).await
+                    .await
                     {
                         Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
                         Err(e) => result.errors.push(format!("insert error (storage): {e}")),
@@ -732,14 +800,20 @@ pub async fn pull_aws_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
                 continue;
             }
 
-            let id = Uuid::new_v4().to_string();
-            match sqlx::query(
-                "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-                 VALUES ($1, 'aws', $2, $3, 'monthly', $4, 'aws_cost_explorer', NULL, $5, $6)
-                 ON CONFLICT DO NOTHING",
+            match upsert_spend_record(
+                pool,
+                SpendRecordUpsert {
+                    platform: "aws",
+                    date: &date,
+                    amount_usd,
+                    granularity: "monthly",
+                    service_label: &service,
+                    source: "aws_cost_explorer",
+                    notes: None,
+                    now: &now_str,
+                },
             )
-            .bind(&id).bind(&date).bind(amount_usd).bind(&service).bind(&now_str).bind(&now_str)
-            .execute(pool).await
+            .await
             {
                 Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
                 Err(e) => result.errors.push(format!("insert error ({service} {date}): {e}")),
