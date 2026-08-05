@@ -220,9 +220,3 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-  event-stream:
-    build:
-      context: standalones/event-stream-service
-    ports:
-      - "8085:8085"
