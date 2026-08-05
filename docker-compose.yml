@@ -1,18 +1,38 @@
-# Local dev environment — all backend services
+# Local dev environment — the full Rust workspace (all 11 services)
 # Frontend runs separately: the React app lives in the infraportal repo
-# (d:/Projects/Portfolio/infraportal) and points at these containers via env.
+# (d:/Projects/Portfolio/infraportal) and points at these containers via env;
+# host ports below mirror that repo's .env.example so the documented local
+# URLs work against compose unchanged.
 #
 # Usage:
 #   docker-compose up --build        # build + start everything
 #   docker-compose up accounts contacts opportunities activities  # subset
 #   docker-compose down
 #
+# Self-contained by decision (2026-08-04, COMPOSE-GAP-1): compose runs exactly
+# the services whose source lives in THIS repo, plus the shared db. Services
+# in sibling repos run from those repos instead:
+#   - event-stream (Go SSE hub): the event-stream-service repo (the old
+#     `standalones/event-stream-service` context was deleted in 949b7e2 and
+#     the build has been broken here since)
+#   - observaboard (Django): the observaboard repo (`../observaboard` only
+#     resolved when a sibling checkout happened to exist)
+# A drift guard in accounts-service/tests/compose_platform_surface.rs asserts
+# every build context exists inside this repo and that the service list stays
+# equal to the workspace members in Cargo.toml.
+#
 # Persistence: the `db` service mirrors CI (.github/workflows/rust.yml):
 # postgres:16, user/password postgres/postgres, one logical database per
 # service, created on first boot by scripts/postgres-init/. The workspace
 # services compile sqlx with postgres-only drivers, so DATABASE_URL must be
 # postgres:// — any other engine's URL can never connect. A drift guard in
-# accounts-service/tests/ scans this file, so keep the URLs postgres.
+# accounts-service/tests/ scans this file, so keep the URLs postgres and the
+# database names on CI's list.
+#
+# Optional integrations (search write-through indexing, observaboard ingest,
+# spend billing providers) follow the workspace fail-open pattern: their env
+# vars are deliberately unset here, so the services boot and serve without
+# them.
 
 services:
 
@@ -96,6 +116,81 @@ services:
       db:
         condition: service_healthy
 
+  automation:
+    build:
+      context: .
+      dockerfile: automation-service/Dockerfile
+    ports:
+      - "3014:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/workflows"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  projects:
+    build:
+      context: .
+      dockerfile: projects-service/Dockerfile
+    ports:
+      - "3015:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/projects"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  integrations:
+    build:
+      context: .
+      dockerfile: integrations-service/Dockerfile
+    ports:
+      - "3016:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/connections"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  audit:
+    build:
+      context: .
+      dockerfile: audit-service/Dockerfile
+    ports:
+      - "3017:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/audit"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  spend:
+    build:
+      context: .
+      dockerfile: spend-service/Dockerfile
+    ports:
+      - "3020:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/spend"
+      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
+      ALLOWED_ORIGINS: "http://localhost:5173"
+    depends_on:
+      db:
+        condition: service_healthy
+
   search:
     build:
       context: .
@@ -125,28 +220,3 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-  # ── Go SSE hub ─────────────────────────────────────────────────────────────
-
-  event-stream:
-    build:
-      context: standalones/event-stream-service
-    ports:
-      - "8085:8085"
-    environment:
-      PORT: "8085"
-      AUTH_JWT_SECRET: "dev-insecure-secret-change-me"
-      ALLOWED_ORIGINS: "http://localhost:5173"
-
-  # ── Django observaboard ────────────────────────────────────────────────────
-
-  observaboard:
-    build:
-      context: ../observaboard
-    ports:
-      - "8000:8000"
-    environment:
-      SECRET_KEY: "django-insecure-dev-key-change-me"
-      DEBUG: "true"
-      ALLOWED_HOSTS: "localhost,127.0.0.1"
-      ALLOWED_ORIGINS: "http://localhost:5173"

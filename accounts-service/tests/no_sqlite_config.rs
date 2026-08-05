@@ -228,8 +228,10 @@ fn local_dev_database_list_matches_ci() {
     );
 
     // docker-compose.yml: every literal postgres URL must target a database
-    // CI also knows about (compose deliberately runs a subset of services,
-    // so this is membership, not equality).
+    // CI also knows about. Membership only here; the per-crate equality
+    // (compose service X uses the same database CI gives crate X) lives in
+    // compose_platform_surface.rs, which also asserts compose carries every
+    // workspace member since 2026-08-04 (COMPOSE-GAP-1).
     let compose = read(&root.join("docker-compose.yml"));
     let compose_names = postgres_database_names(&compose);
     assert!(
