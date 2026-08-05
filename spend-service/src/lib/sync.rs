@@ -46,8 +46,7 @@ pub async fn upsert_spend_record(
     sqlx::query(
         "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-         ON CONFLICT (platform, date, service_label) WHERE service_label IS NOT NULL
-         DO UPDATE SET amount_usd = EXCLUDED.amount_usd, notes = EXCLUDED.notes, updated_at = EXCLUDED.updated_at",
+         ON CONFLICT DO NOTHING",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(record.platform)
