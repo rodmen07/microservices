@@ -12,9 +12,9 @@
  * - `AssertNoUncoveredRoutes` proves the reverse direction: every route the spec
  *   declares, other than the `/health` and `/ready` probes, is covered by the
  *   module — so a spec that gains an endpoint fails the build naming it.
- * - `AssertNoParameters` pins the three list operations that deliberately take
- *   no query parameters, so a spec that gains a filter cannot leave the SDK
- *   silently unable to send it.
+ * - `Assert<DeclaresNoParameters<...>>` pins the three list operations that
+ *   deliberately take no query parameters, so a spec that gains a filter cannot
+ *   leave the SDK silently unable to send it.
  * - `JsonBody` derives each method's response type from the operation's own
  *   declared success response instead of guessing a schema name. That matters
  *   here: `list` returns a `List<X>Response` envelope on accounts, contacts and
