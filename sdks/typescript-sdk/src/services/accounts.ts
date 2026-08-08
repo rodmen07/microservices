@@ -1,28 +1,47 @@
 /**
  * Typed accounts-service module: list/get/create/update/delete over
- * /api/v1/accounts, using the types generated from
- * accounts-service/openapi.yaml.
+ * /api/v1/accounts, using the types generated from accounts-service/openapi.yaml.
  *
  * All routes require a bearer JWT with the admin role (docs/API.md); a valid
- * token without it produces ApiError { status: 403, code: "FORBIDDEN" }.
+ * token without it produces ApiError { status: 403, code: "FORBIDDEN" }. Do not
+ * copy that 403 note onto other services — the admin gating is per service.
  *
- * This is the first typed service module. The remaining services (activities,
- * audit, automation, contacts, integrations, opportunities, projects,
- * reporting, search, spend) land in follow-up PRs; their generated types are
- * already available under src/generated/.
+ * Routes and response types are pinned to the generated spec types by the
+ * helpers in ../core/routes.js; see that file for what the pinning does and
+ * does not prove.
  */
 import type {
   ApiResponse,
   InfraPortalClient,
   RequestOptions,
 } from "../core/client.js";
-import type { components, operations } from "../generated/accounts.js";
+import { expandPath } from "../core/routes.js";
+import type {
+  AssertNoUncoveredRoutes,
+  JsonBody,
+  ProbePath,
+} from "../core/routes.js";
+import type { components, operations, paths } from "../generated/accounts.js";
+
+/** Every route this module calls, pinned to the generated spec paths. */
+const ROUTES = [
+  "/api/v1/accounts",
+  "/api/v1/accounts/{id}",
+] as const satisfies readonly (keyof paths)[];
+
+const [ACCOUNTS, ACCOUNT] = ROUTES;
+
+/** Fails the build if accounts-service/openapi.yaml gains a route this module
+ * does not call. The error names the uncovered path. */
+type _AllRoutesCovered = AssertNoUncoveredRoutes<
+  Exclude<keyof paths, (typeof ROUTES)[number] | ProbePath>
+>;
 
 export type Account = components["schemas"]["Account"];
 export type AccountStatus = Account["status"];
 export type CreateAccountRequest = components["schemas"]["CreateAccountRequest"];
 export type UpdateAccountRequest = components["schemas"]["UpdateAccountRequest"];
-export type ListAccountsResponse = components["schemas"]["ListAccountsResponse"];
+export type ListAccountsResponse = JsonBody<operations["listAccounts"], 200>;
 export type ListAccountsQuery = NonNullable<
   operations["listAccounts"]["parameters"]["query"]
 >;
@@ -38,7 +57,7 @@ export class AccountsApi {
     query?: ListAccountsQuery,
     options?: CallOptions,
   ): Promise<ApiResponse<ListAccountsResponse>> {
-    return this.client.request<ListAccountsResponse>("GET", "/api/v1/accounts", {
+    return this.client.request<ListAccountsResponse>("GET", ACCOUNTS, {
       ...options,
       query,
     });
@@ -46,11 +65,9 @@ export class AccountsApi {
 
   /** GET /api/v1/accounts/{id}. Throws ApiError NOT_FOUND (404) when absent. */
   get(id: string, options?: CallOptions): Promise<ApiResponse<Account>> {
-    return this.client.request<Account>(
-      "GET",
-      `/api/v1/accounts/${encodeURIComponent(id)}`,
-      { ...options },
-    );
+    return this.client.request<Account>("GET", expandPath(ACCOUNT, { id }), {
+      ...options,
+    });
   }
 
   /**
@@ -63,7 +80,7 @@ export class AccountsApi {
     body: CreateAccountRequest,
     options?: CallOptions,
   ): Promise<ApiResponse<Account>> {
-    return this.client.request<Account>("POST", "/api/v1/accounts", {
+    return this.client.request<Account>("POST", ACCOUNTS, {
       ...options,
       body,
     });
@@ -80,19 +97,16 @@ export class AccountsApi {
     body: UpdateAccountRequest,
     options?: CallOptions,
   ): Promise<ApiResponse<Account>> {
-    return this.client.request<Account>(
-      "PATCH",
-      `/api/v1/accounts/${encodeURIComponent(id)}`,
-      { ...options, body },
-    );
+    return this.client.request<Account>("PATCH", expandPath(ACCOUNT, { id }), {
+      ...options,
+      body,
+    });
   }
 
   /** DELETE /api/v1/accounts/{id}. Resolves with no data on 204. */
   delete(id: string, options?: CallOptions): Promise<ApiResponse<void>> {
-    return this.client.request<void>(
-      "DELETE",
-      `/api/v1/accounts/${encodeURIComponent(id)}`,
-      { ...options },
-    );
+    return this.client.request<void>("DELETE", expandPath(ACCOUNT, { id }), {
+      ...options,
+    });
   }
 }

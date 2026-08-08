@@ -1,10 +1,10 @@
 # @rodmen07/infraportal-sdk
 
-TypeScript SDK for the InfraPortal CRM platform API (v1.16.3 PR1). A small hand-written fetch client plus types generated from the eleven per-service OpenAPI 3.0.3 specs in this repo.
+TypeScript SDK for the InfraPortal CRM platform API. A small hand-written fetch client plus types generated from the eleven per-service OpenAPI 3.0.3 specs in this repo.
 
 > **Runtime status:** the platform services are deployed on Google Cloud Run, and live per-service health is published on the [platform status board](https://rodmen07.github.io/infraportal/#/status). This SDK targets the documented API contract, as captured in the per-service specs and verified by the service test suites. It also works against a locally run service or gateway.
 
-> **Publishing:** npm publishing is deliberately not configured yet. There are no publish scripts in `package.json`, and the license field is intentionally absent until a license is chosen for the repo; both are pre-publish decisions for a later PR.
+> **Publishing:** the package is licensed MIT (`LICENSE` sits at the package root so npm bundles it from this subdirectory) and its manifest is publish-ready, but nothing has been published yet — `npm view @rodmen07/infraportal-sdk` returns 404. The earlier note here said the license field was "intentionally absent until a license is chosen"; that stopped being true when the repo adopted MIT.
 
 ## Layout
 
@@ -12,13 +12,31 @@ TypeScript SDK for the InfraPortal CRM platform API (v1.16.3 PR1). A small hand-
 sdks/typescript-sdk/
   scripts/generate.mjs   type generation driver (pinned openapi-typescript@6)
   src/core/client.ts     hand-written fetch client: auth, errors, rate limits, retry
+  src/core/routes.ts     route pinning + path expansion shared by the service modules
   src/generated/*.ts     one generated types file per service spec (do not edit)
-  src/services/accounts.ts  first typed service module
+  src/services/*.ts      one typed service module per covered service
   src/index.ts           package entry point
   tests/*.test.mjs       node:test unit tests (no network access)
 ```
 
-`AccountsApi` is the first typed service module. The remaining services (activities, audit, automation, contacts, integrations, opportunities, projects, reporting, search, spend) land as follow-up PRs; their generated types are already present under `src/generated/` and can be used directly with `client.request` in the meantime.
+**Seven of the eleven services have a typed module today:** `AccountsApi`, `ActivitiesApi`,
+`AuditApi`, `AutomationApi`, `ContactsApi`, `IntegrationsApi` and `OpportunitiesApi`. The four
+remaining services (projects, reporting, search, spend) land in a follow-up PR; their generated
+types are already present under `src/generated/` and can be used directly with `client.request`
+in the meantime.
+
+Every module declares its routes as literals pinned to that service's generated `paths` type, so
+a route renamed in an `openapi.yaml` fails the build instead of silently calling a dead URL, and a
+route *added* to a spec fails the build naming the path no module covers. Response types are
+derived from each operation's own declared success response rather than from a schema name —
+which matters, because `list` returns a paginated envelope on accounts, contacts and audit and a
+bare array on activities, automation, integrations and opportunities. See `src/core/routes.ts`
+for what that pinning does and does not prove.
+
+Two surfaces are deliberately not uniform, and both are pinned rather than remembered:
+`ActivitiesApi.list()`, `AutomationApi.list()` and `IntegrationsApi.list()` take no argument
+because their specs declare no query parameters at all, and `AuditApi` has only `list`/`ingest`
+because the audit log is append-only.
 
 ## Install, generate, build, test
 
