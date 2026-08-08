@@ -1,6 +1,8 @@
 # v1.17 Theme Proposal: Interactive API Playground
 
-**Status: PROPOSED - awaiting user review.** This is a design document, not scheduled work. The autonomous workflow must not pick up any v1.17.x item until the user approves the theme and resolves the decisions in the final section.
+> **Status: APPROVED 2026-07-19 and DELIVERED 2026-07-19. Corrected 2026-08-08 by the roadmap truth audit.** The theme was approved with defaults and shipped the same day: v1.17.1 spec rendering + restored nav, v1.17.2 "Try it" builder with 28 executable operations, v1.17.3 snippets + deep links, v1.17.4 cross-repo drift detection + patch notes (see the "Next milestones" section of [`ROADMAP.md`](../../ROADMAP.md), which has recorded this since 2026-07-19). This document is now a historical design record.
+>
+> The banner it replaces stood for twenty days and read, verbatim: *"**Status: PROPOSED - awaiting user review.** This is a design document, not scheduled work. The autonomous workflow must not pick up any v1.17.x item until the user approves the theme and resolves the decisions in the final section."* That is a live instruction forbidding work that had already merged — the decisions below were resolved by taking their defaults, and every slice shipped. Kept quoted here rather than deleted, so the wrong state stays recoverable by grep.
 
 - Created: 2026-07-19, branch `autodev/v1.17-theme-proposal`
 - Canonical roadmap: [`ROADMAP.md`](../../ROADMAP.md) (decommission status, doable-now / BLOCKED / USER-ONLY partition)
