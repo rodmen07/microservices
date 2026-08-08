@@ -96,4 +96,4 @@ jobs:
         # command — `error: 1 vulnerability found!`, naming the very advisory the
         # root audit.toml claims to ignore. Tracked as AUDIT-CONFIG-DEAD-1; do
         # not "simplify" this line by trusting that file.
-        run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
+        run: cargo audit --deny warnings
