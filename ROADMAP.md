@@ -80,7 +80,7 @@ RE-VERIFIED 2026-07-20 (prompted by the PR #103 finding that this same file had 
 
 Sizing: each milestone is sized for one or two small PRs so the one-increment-per-run workflow can deliver it. Order below is the intended ship order; v1.16.2's rate-limit guide is independent and may land earlier if sequencing demands.
 
-- RETIRED 2026-08-08 (truth audit): the sentence *"Cadence target: roughly one minor version per week, restarting at v1.16.0 the week of 2026-07-20"* is deleted rather than re-dated. It was falsified by its own delivery — v1.16.0 through v1.17.4, six milestones, all merged between 2026-07-18 and 2026-07-19 — and a weekly target is the wrong unit for agent-executed work, where dependency order and user gates are the only real sequencing constraints. Nothing replaces it; a date is not a blocker here.
+- RETIRED 2026-08-08 (truth audit): the sentence *"Cadence target: roughly one minor version per week, restarting at v1.16.0 the week of 2026-07-20"* is deleted rather than re-dated. It was falsified by its own delivery, and by more than a week: the target was "restarting at v1.16.0 the week of 2026-07-20", but this repo's v1.16 PRs had all merged BEFORE that week began — `gh pr list --state merged` gives #89, #92, #93, #94, #95 on **2026-07-18** and #96, #97 on **2026-07-19**, every one with `baseRefName=main` — and this file records v1.17 delivered on 2026-07-19 as well (its four slices land in the infraportal repo and are not re-verified here). A weekly target is also the wrong unit for agent-executed work, where dependency order and user gates are the only real sequencing constraints. Nothing replaces it; a date is not a blocker here.
 
 ### v1.16.0 - Auth Hardening Wrap-up and Roadmap Reset (doable now)
 
