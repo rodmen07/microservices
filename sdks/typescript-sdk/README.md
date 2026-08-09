@@ -19,24 +19,35 @@ sdks/typescript-sdk/
   tests/*.test.mjs       node:test unit tests (no network access)
 ```
 
-**Seven of the eleven services have a typed module today:** `AccountsApi`, `ActivitiesApi`,
-`AuditApi`, `AutomationApi`, `ContactsApi`, `IntegrationsApi` and `OpportunitiesApi`. The four
-remaining services (projects, reporting, search, spend) land in a follow-up PR; their generated
-types are already present under `src/generated/` and can be used directly with `client.request`
-in the meantime.
+**All eleven services have a typed module:** `AccountsApi`, `ActivitiesApi`, `AuditApi`,
+`AutomationApi`, `ContactsApi`, `IntegrationsApi`, `OpportunitiesApi`, `ProjectsApi`,
+`ReportingApi`, `SearchApi` and `SpendApi`.
 
 Every module declares its routes as literals pinned to that service's generated `paths` type, so
 a route renamed in an `openapi.yaml` fails the build instead of silently calling a dead URL, and a
 route *added* to a spec fails the build naming the path no module covers. Response types are
 derived from each operation's own declared success response rather than from a schema name —
-which matters, because `list` returns a paginated envelope on accounts, contacts and audit and a
-bare array on activities, automation, integrations and opportunities. See `src/core/routes.ts`
-for what that pinning does and does not prove.
+which matters, because `list` returns a paginated envelope on accounts, contacts, audit and spend
+and a bare array on activities, automation, integrations, opportunities, projects and reporting.
+See `src/core/routes.ts` for what that pinning does and does not prove.
 
-Two surfaces are deliberately not uniform, and both are pinned rather than remembered:
-`ActivitiesApi.list()`, `AutomationApi.list()` and `IntegrationsApi.list()` take no argument
-because their specs declare no query parameters at all, and `AuditApi` has only `list`/`ingest`
-because the audit log is append-only.
+Several surfaces are deliberately not uniform, and each is pinned rather than remembered:
+
+- `ActivitiesApi.list()`, `AutomationApi.list()`, `IntegrationsApi.list()`, `ProjectsApi.list()`,
+  `ReportingApi.list()` and `SearchApi.listDocuments()` take no argument, because their specs
+  declare no query parameters at all.
+- `SearchApi.search(query)` is the one call whose query is **required**: `/api/v1/search` answers
+  400 without `q` rather than returning everything.
+- `AuditApi` has only `list`/`ingest` because the audit log is append-only; `ProjectsApi` has no
+  get-by-id for milestones or deliverables, no update for links, and no direct write for emails,
+  because projects-service declares none.
+- `ProjectsApi` sub-resources are **created under their parent but addressed by their own id**
+  afterwards: `createMilestone(projectId, …)` then `updateMilestone(milestoneId, …)`.
+- `SpendApi.syncGcp()` and its three siblings are POSTs with no request body, and a 403 from
+  `SpendApi.update`/`delete` is a record-source guard (only `source: "manual"` is editable), not a
+  role check.
+- `ReportingApi.export()` returns `SavedReport[]` **or CSV text**, selected by its `format` query
+  parameter rather than by `Accept`, so its return type is the union of both representations.
 
 ## Install, generate, build, test
 

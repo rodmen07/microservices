@@ -71,6 +71,26 @@ export type DeclaresNoParameters<Op> = "parameters" extends keyof Op
   : true;
 
 /**
+ * `true` when an operation's query string is REQUIRED rather than optional.
+ *
+ * openapi-typescript emits `query?: {...}` when every parameter is optional and
+ * `query: {...}` when at least one is required, so `undefined` is assignable to
+ * the former and not the latter. `searchDocuments` is the platform's only
+ * operation with a required parameter (`q`), and a request that omits it is
+ * answered 400 rather than with an empty result — so `SearchApi.search` takes
+ * its query as a required argument. This predicate pins the spec side of that
+ * decision: if `q` ever became optional the method signature would be needlessly
+ * strict, and if a second service gained a required parameter the same helper
+ * makes that visible instead of leaving the SDK able to send an invalid request.
+ */
+export type DeclaresRequiredQuery<Op extends { parameters: object }> =
+  "query" extends keyof Op["parameters"]
+    ? undefined extends Op["parameters"]["query"]
+      ? false
+      : true
+    : false;
+
+/**
  * The `application/json` body an operation declares for `Status`.
  *
  * `Status` is constrained to the statuses the operation actually declares, so
@@ -88,6 +108,29 @@ export type JsonBody<
   content: { "application/json": infer Body };
 }
   ? Body
+  : never;
+
+/**
+ * The union of EVERY media type an operation declares for `Status`.
+ *
+ * `JsonBody` is the right derivation when an operation has one representation.
+ * `exportReports` has two — `application/json` and `text/csv`, selected by its
+ * `format` query parameter, not by `Accept` — and `InfraPortalClient.parseBody`
+ * mirrors that at runtime: it parses JSON when the response's `Content-Type`
+ * says JSON and hands back the raw text otherwise. A method typed with
+ * `JsonBody` alone would promise `SavedReport[]` while returning a CSV string
+ * whenever the caller passes `format: "csv"`.
+ *
+ * Deriving the union from the operation rather than hand-writing
+ * `SavedReport[] | string` keeps it honest in both directions: a spec that drops
+ * `text/csv` narrows the SDK's return type automatically, and a spec that adds a
+ * third representation widens it, so callers are forced to narrow.
+ */
+export type AnyBody<
+  Op extends { responses: object },
+  Status extends keyof Op["responses"],
+> = Op["responses"][Status] extends { content: infer Content }
+  ? Content[keyof Content]
   : never;
 
 /** The `{name}` placeholders in a path template, as a union of their names. */
