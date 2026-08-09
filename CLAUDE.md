@@ -2,40 +2,39 @@
 
 ## What this project is
 
-InfraPortal: a portfolio microservices system. Ten independently deployed Rust services, all production-grade with Cloud SQL PostgreSQL persistence and JWT authentication.
+InfraPortal: a portfolio microservices system. This workspace holds **eleven** independently deployed Rust services (the exact `[workspace] members` list in the root `Cargo.toml` is the source of truth), all production-grade: Rust/Axum, Cloud SQL PostgreSQL persistence (`PgPool` — no service uses SQLite), JWT authentication. A merge to `main` deploys all eleven to Google Cloud Run.
 
-**Deployed and production-grade:**
-- `task-api-service` — Rust/Axum, PostgreSQL, JWT auth, AI planner proxy. Port 3000. The reference implementation.
-- `accounts-service` — Rust/Axum, PostgreSQL, JWT auth. Port 3010.
-- `contacts-service` — Rust/Axum, PostgreSQL, JWT auth, cross-service account validation. Port 3011.
-- `activities-service` — Rust/Axum, PostgreSQL, JWT auth. Port 3013.
-- `automation-service` — Rust/Axum, PostgreSQL, JWT auth.
-- `integrations-service` — Rust/Axum, PostgreSQL, JWT auth.
-- `opportunities-service` — Rust/Axum, PostgreSQL, JWT auth.
-- `reporting-service` — Rust/Axum, PostgreSQL, JWT auth, saved report CRUD, /dashboard.
-- `search-service` — Rust/Axum, PostgreSQL, JWT auth, write-through indexing.
+**The eleven workspace services** (port = local `docker-compose.yml` host port; Cloud Run injects `PORT` in production):
 
-**Non-Rust:**
-- `ai-orchestrator-service` — Python/FastAPI, internal-only, calls Anthropic Claude API.
-- `auth-service` — minimal implementation.
+- `accounts-service` — 3010. The reference implementation: copy its layout for new services.
+- `contacts-service` — 3011, cross-service account validation.
+- `opportunities-service` — 3012.
+- `activities-service` — 3013.
+- `automation-service` — 3014.
+- `projects-service` — 3015, client portal API (projects, milestones, deliverables).
+- `integrations-service` — 3016.
+- `audit-service` — 3017, immutable CRM mutation log.
+- `spend-service` — 3020, cost tracking + billing syncs (GCP/Fly/GitHub/AWS).
+- `search-service` — 8083, write-through indexing.
+- `reporting-service` — 8086, saved report CRUD.
 
-**Frontend:** `frontend-service` (React 19 + TypeScript + Vite + Tailwind v3) lives in a separate repo at `d:\Projects\microservices\frontend-service\` but is git-tracked separately (remote: `frontend-service`).
+**Not in this repo** (separate repos; do not look for them here): the frontend (**infraportal**, see below), `go-gateway` (`d:\Projects\Portfolio\go-gateway`), `auth-service`, `backend-service`, `event-stream-service`. The TypeScript SDK `@rodmen07/infraportal-sdk` DOES live here, at `sdks/typescript-sdk/`, despite its package name.
+
+**Frontend:** the public frontend is **infraportal** (React 19 + TypeScript + Vite + Tailwind v3), a separate repo at `d:\Projects\Portfolio\infraportal\` (GitHub `rodmen07/infraportal`), deployed to GitHub Pages at https://rodmen07.github.io/infraportal/.
 
 ---
 
 ## Shell / build environment
 
-`cargo` is NOT available in the Windows bash shell due to missing `dlltool.exe`. Do NOT attempt to run `cargo build`, `cargo test`, or `cargo check` via the Bash tool — they will fail with "error calling dlltool 'dlltool.exe': program not found". Write correct code and let the user build.
+`cargo` IS available from the Git Bash shell at `/c/Users/rodme/.cargo/bin/cargo.exe` (it is merely absent from the default PATH). `cargo check`, `cargo test`, `cargo clippy` and `cargo audit` all work and have compiled this workspace locally (verified 2026-08-08; earlier prose claiming a blanket `dlltool.exe` failure is superseded — if a from-scratch build exceeds a tool timeout, scope it with `-p <crate>`). WSL (Ubuntu 22.04) in the VS Code integrated terminal is an alternative. Tests that hit a database need a local Postgres; CI provides one, so DB-backed test *execution* is normally left to CI.
 
-**Workaround:** `cargo` IS available in the VS Code integrated terminal using WSL (Ubuntu 22.04). The user can open the integrated terminal (Ctrl+`) and run commands there. If a type error is suspected, reason through it manually rather than running the compiler.
-
-The workspace has a GitHub Actions CI pipeline (`.github/workflows/rust.yml`) that runs `cargo build` and `cargo test` on push.
+CI (`.github/workflows/rust.yml`) is a single fail-closed pipeline: a `Detect changes` classifier skips the cargo jobs on docs-only diffs; code diffs run `cargo clippy -D warnings` + `cargo test` per service against a Postgres service container, plus `cargo audit --deny warnings`; a merge to `main` additionally deploys all eleven services to Cloud Run with a post-deploy `/health` smoke test that fails the job if a service does not serve.
 
 ---
 
 ## Rust service architecture — standard pattern
 
-All production Rust services follow the `task-api-service` layout exactly. When upgrading a stub, replicate this structure:
+All production Rust services follow the `accounts-service` layout exactly. When adding a service, replicate this structure:
 
 ```
 <service>/
@@ -46,7 +45,7 @@ All production Rust services follow the `task-api-service` layout exactly. When 
     main.rs           # entrypoint only: read env vars, init AppState, bind listener
     lib.rs            # #[path] declarations + pub use re-exports
     lib/
-      app_state.rs    # SqlitePool (+ reqwest::Client if cross-service calls needed)
+      app_state.rs    # PgPool (+ reqwest::Client if cross-service calls needed)
       auth.rs         # JWT validation (copy from accounts-service verbatim)
       models.rs       # all structs: domain model, request/response DTOs, ApiError, HealthResponse
       router.rs       # build_router(), build_cors_layer()
@@ -82,9 +81,10 @@ Without `#[path]`, Rust looks for `src/app_state.rs` not `src/lib/app_state.rs`.
 
 ```toml
 axum = { version = "0.8", features = ["macros"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+axum-api-kit.workspace = true   # "2.0" in [workspace.dependencies]; supplies ApiError + HealthResponse
+tower-http = { version = "0.7", features = ["cors", "trace"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "macros", "migrate"] }
-jsonwebtoken = "8.3.0"
+jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["clock"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -117,8 +117,8 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
 }
 ```
 
-The `auth.rs` module is identical across all services. Key env vars:
-- `AUTH_JWT_SECRET` (default: `"dev-insecure-secret-change-me"`)
+The `auth.rs` module follows one pattern across all services but is NOT byte-identical: eight services match `accounts-service` exactly, while `contacts`, and `projects`+`spend`, carry service-specific variants (role gating / validation differences). Key env vars:
+- `AUTH_JWT_SECRET` (**required** — `auth_secret()` panics at startup if unset; there is no default)
 - `AUTH_JWT_ALGORITHM` (default: `HS256`; supports RS256/RS384/RS512/HS384/HS512)
 - `AUTH_ISSUER` (default: `"auth-service"`)
 
@@ -126,16 +126,10 @@ The `auth.rs` module is identical across all services. Key env vars:
 
 ## Error envelope
 
-All errors must return `{ code, message, details? }`:
+All errors return `{ code, message, details? }`. Since the axum-api-kit adoption (PR #103), `ApiError` and `HealthResponse` are NOT hand-rolled: every service's `models.rs` re-exports them —
 
 ```rust
-#[derive(Serialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<serde_json::Value>,
-}
+pub use axum_api_kit::{ApiError, HealthResponse};
 ```
 
 Use `StatusCode` constants (`BAD_REQUEST`, `NOT_FOUND`, `UNPROCESSABLE_ENTITY`, etc.) — never raw numbers.
@@ -179,7 +173,7 @@ When a service needs to validate a foreign key from another service (e.g. contac
 
 ## CORS
 
-`ALLOWED_ORIGINS` env var — comma-separated list of allowed origins. Empty = no cross-origin allowed. `*` = fully permissive (warn + use `CorsLayer::permissive()`).
+`ALLOWED_ORIGINS` env var — comma-separated allowlist of origins. `*` is NOT permissive: the eight services with the fail-open variant panic at startup on `*` ("use an explicit origin list in production"). Unset/empty behaviour currently DIVERGES across the eleven services: `accounts`, `audit` and `contacts` panic at startup ("refusing to start with permissive CORS"), while the other eight start and serve with no cross-origin allowed — silently browser-dead. Unifying this is tracked as CORS-SPLIT-1 in the autodev backlog; do not add a twelfth variant.
 
 ---
 
@@ -195,10 +189,13 @@ Expected GitHub configuration:
 - Repository secret `GCP_WORKLOAD_IDENTITY_PROVIDER` (WIF provider resource name).
 - Repository secret `GCP_SERVICE_ACCOUNT` (deployer SA email).
 - Repository secret `AUTH_JWT_SECRET`.
-- Per-service Secret Manager secrets: `ACCOUNTS_DB_URL`, `CONTACTS_DB_URL`, `ACTIVITIES_DB_URL`,
-  `AUTOMATION_DB_URL`, `INTEGRATIONS_DB_URL`, `OPPORTUNITIES_DB_URL`, `REPORTING_DB_URL`,
-  `SEARCH_DB_URL`, `SPEND_DB_URL`, `PROJECTS_DB_URL`.
-  Format: `postgres://appuser:pass@/<dbname>?host=/cloudsql/microservices-489413:us-south1:microservices-pg`
+- Per-service Secret Manager secrets, named `DATABASE_URL_<SERVICE>` (the `db_secret` values in
+  rust.yml's deploy matrix): `DATABASE_URL_ACCOUNTS`, `DATABASE_URL_CONTACTS`, `DATABASE_URL_ACTIVITIES`,
+  `DATABASE_URL_AUTOMATION`, `DATABASE_URL_INTEGRATIONS`, `DATABASE_URL_OPPORTUNITIES`,
+  `DATABASE_URL_REPORTING`, `DATABASE_URL_SEARCH`, `DATABASE_URL_SPEND`, `DATABASE_URL_PROJECTS`,
+  `DATABASE_URL_AUDIT`. Each holds that service's full Cloud SQL DATABASE_URL. The DB users are
+  PER-SERVICE (`accounts_user`, `contacts_user`, ...), not a shared `appuser` (verified live 2026-07-21;
+  the secrets themselves are unreadable by design — never assert their exact contents from memory).
 
 The deployer SA needs roles: Artifact Registry Writer, Cloud Run Developer, Cloud SQL Client,
 Secret Manager Secret Accessor.
@@ -211,22 +208,23 @@ Runtime configuration (service-level):
 
 ---
 
-## Frontend (frontend-service)
+## Frontend (infraportal)
 
-Separate git repo. Located at `d:\Projects\microservices\frontend-service\`.
+Separate git repo: `d:\Projects\Portfolio\infraportal\` (GitHub `rodmen07/infraportal`; there is no `frontend-service` directory or remote — that name is historical).
 
-- React 19 + TypeScript + Vite + Tailwind v3
-- Hash-based router: `window.location.hash` + `hashchange` event in `src/main.tsx`
-- To add a page: create `src/pages/MyPage.tsx`, import in `main.tsx`, add `if (hash === '#/mypage') return <MyPage />`
-- CMS-driven content via JSON files in `public/content/` fetched at runtime
+- React 19 + TypeScript + Vite + Tailwind v3, hash-based routing handled in `src/main.tsx`
+- Deployed to GitHub Pages at https://rodmen07.github.io/infraportal/ on merges to its `main`
+- It renders this repo's OpenAPI specs (synced snapshots, drift-guarded); spec text changes belong in each service's `openapi.yaml` HERE, then get synced there
+- See that repo's own `ROADMAP.md` and `CLAUDE.md` before editing it
 
 ---
 
 ## Git
 
-- `d:\Projects\microservices\` — Rust workspace (remote: `microservices`)
-- `d:\Projects\microservices\frontend-service\` — React frontend (remote: `frontend-service`)
-- Commit both repos separately when making cross-cutting changes.
+- `d:\Projects\Portfolio\microservices\` — this Rust workspace (GitHub `rodmen07/microservices`)
+- `d:\Projects\Portfolio\infraportal\` — React frontend (GitHub `rodmen07/infraportal`)
+- `d:\Projects\Portfolio\` itself is a THIRD git repo (the superproject) that tracks both of the above as gitlinks. Never commit, stage, or branch there as part of work in this repo — only inside the repo subdirectories.
+- Commit the repos separately when making cross-cutting changes.
 
 ---
 
@@ -416,7 +414,7 @@ Every location that must be updated when publishing a version. This list is the 
 
 ## Service upgrade history
 
-All nine Rust services have been upgraded from stubs to production-grade (PostgreSQL via Cloud SQL, JWT auth, full CRUD). The upgrade followed this standard checklist:
+Every Rust service in the workspace is production-grade (PostgreSQL via Cloud SQL, JWT auth, full CRUD). The stub upgrades followed this standard checklist:
 1. Update `Cargo.toml` — add sqlx, jsonwebtoken, chrono; upgrade axum to 0.8, tower-http to 0.6
 2. Add `[lib]` + `[[bin]]` sections to `Cargo.toml`
 3. Create `migrations/0001_create_<table>.sql`

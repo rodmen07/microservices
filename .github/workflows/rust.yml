@@ -368,8 +368,10 @@ jobs:
   #     deployer@PROJECT_ID.iam.gserviceaccount.com
   # - Repository secret AUTH_JWT_SECRET: shared JWT signing secret
   # - Per-service Secret Manager secrets (see db_secret in matrix below):
-  #     Each secret holds the full Cloud SQL DATABASE_URL for that service, e.g.:
-  #     postgres://appuser:pass@/accounts?host=/cloudsql/PROJECT:REGION:INSTANCE
+  #     Each secret holds the full Cloud SQL DATABASE_URL for that service.
+  #     The DB users are per-service (accounts_user, contacts_user, ...), not a
+  #     shared "appuser" (verified live 2026-07-21); never assert the secrets'
+  #     exact contents from memory — they are unreadable by design.
   #
   # The SA needs roles: Artifact Registry Writer, Cloud Run Developer,
   #   Cloud SQL Client, Secret Manager Secret Accessor.
