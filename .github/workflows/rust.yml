@@ -344,11 +344,16 @@ jobs:
         # starts from a clean baseline; a new one now fails the build instead
         # of scrolling past.
         #
-        # RUSTSEC-2023-0071: rsa Marvin Attack — no patch available in rsa 0.9.x.
-        # All services default to HS256; RSA is only used for token verification
-        # on controlled infrastructure. Risk accepted until upstream ships a fix.
-        # This is the ONLY accepted advisory; every other finding must be fixed.
-        run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
+        # Accepted advisories live in `.cargo/audit.toml` (currently only
+        # RUSTSEC-2023-0071, rsa Marvin Attack, no patch available — rationale
+        # in that file). cargo-audit LOADS that path from the repo root; do not
+        # add a CLI `--ignore` here — a second enforcing home is exactly what
+        # let AUDIT-CONFIG-DEAD-1 sit unnoticed (the list lived in a root
+        # `audit.toml` cargo-audit never read, and only the CLI flag worked).
+        # This command must stay byte-identical to security-audit.yml's; the
+        # guard test accounts-service/tests/audit_config_loaded.rs enforces
+        # both properties.
+        run: cargo audit --deny warnings
 
   # ─── Deploy to Google Cloud Run (main branch only) ─────────────────────────
   #
