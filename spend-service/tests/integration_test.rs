@@ -513,3 +513,94 @@ async fn monthly_sync_upsert_refreshes_the_running_total_instead_of_freezing() {
         "a later sync in the same month must refresh the total (25.0), not freeze at the first value observed (10.0)"
     );
 }
+
+// ---------------------------------------------------------------------------
+// SYNC-COUNT-1 regression test.
+//
+// The SPEND-REFRESH-1 fix above switched the monthly syncs to `ON CONFLICT
+// DO UPDATE`, and Postgres reports the conflicting row an UPDATE rewrote as
+// affected — so `rows_affected()` became always-1, the post-upsert
+// `records_skipped` arm went unreachable, and every mid-month refresh was
+// reported to callers (and the SpendTab UI) as a fresh import.
+// `upsert_spend_record` now returns `RETURNING (xmax = 0)`: true only for a
+// row this statement newly inserted. This proves the discrimination against
+// a real Postgres connection: the month-opening call must report NEW and the
+// mid-month refresh must report NOT-NEW while still updating the amount
+// (the refresh property itself is pinned by the SPEND-REFRESH-1 test above;
+// re-asserted here so a "distinguish by not updating" regression cannot pass).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn upsert_reports_new_rows_as_inserted_and_refreshes_as_not_new() {
+    let pool = sqlx::PgPool::connect(&test_database_url())
+        .await
+        .expect("failed to connect to test database");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
+    let label = format!("test-sync-count-{}", uuid::Uuid::new_v4());
+    let date = "2026-05-01";
+
+    let first = spend_service::sync::upsert_spend_record(
+        &pool,
+        spend_service::sync::SpendRecordUpsert {
+            platform: "github",
+            date,
+            amount_usd: 3.0,
+            granularity: "monthly",
+            service_label: &label,
+            source: "github_api",
+            notes: None,
+            now: "2026-05-01T00:00:00Z",
+        },
+    )
+    .await
+    .expect("first upsert (month-open value) failed");
+
+    assert!(
+        first,
+        "the month-opening upsert created the row, so it must report NEW \
+         (counted as records_imported)"
+    );
+
+    let second = spend_service::sync::upsert_spend_record(
+        &pool,
+        spend_service::sync::SpendRecordUpsert {
+            platform: "github",
+            date,
+            amount_usd: 7.5,
+            granularity: "monthly",
+            service_label: &label,
+            source: "github_api",
+            notes: None,
+            now: "2026-05-15T00:00:00Z",
+        },
+    )
+    .await
+    .expect("second upsert (mid-month refresh) failed");
+
+    assert!(
+        !second,
+        "a mid-month refresh rewrites an EXISTING row, so it must report \
+         NOT-NEW (counted as records_skipped, not records_imported) — \
+         reporting it as an import is exactly SYNC-COUNT-1"
+    );
+
+    let amount: f64 = sqlx::query_scalar(
+        "SELECT amount_usd FROM spend_records WHERE platform = $1 AND date = $2 AND service_label = $3",
+    )
+    .bind("github")
+    .bind(date)
+    .bind(&label)
+    .fetch_one(&pool)
+    .await
+    .expect("row missing after upsert");
+
+    assert_eq!(
+        amount, 7.5,
+        "NOT-NEW must mean 'refreshed in place', never 'left stale': the \
+         refresh property from SPEND-REFRESH-1 has to survive the counter fix"
+    );
+}

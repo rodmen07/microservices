@@ -25,6 +25,17 @@ use crate::models::SyncResult;
 // service_label) refreshes `amount_usd`/`notes`/`updated_at` in place.
 // `created_at` is left untouched by the update (it is not in the SET list),
 // so the original first-seen timestamp survives a refresh.
+//
+// SYNC-COUNT-1: `ON CONFLICT DO UPDATE` reports the conflicting row as
+// affected, so `rows_affected()` is always 1 and cannot tell an insert from
+// a refresh — which made every refresh count as `records_imported` and left
+// the post-upsert `records_skipped` arm unreachable. The upsert therefore
+// returns `RETURNING (xmax = 0)`: Postgres leaves `xmax` at 0 on a freshly
+// inserted row version and sets it on the conflicting row an UPDATE
+// rewrote, so `true` means "newly inserted this month" and `false` means
+// "already existed; amounts refreshed in place". Callers count the former
+// as `records_imported` and the latter as `records_skipped` (the wire
+// field's documented meaning: not newly created — see openapi.yaml).
 
 /// Fields for one `upsert_spend_record` call, bundled into a struct instead
 /// of nine positional arguments (`clippy::too_many_arguments`).
@@ -39,15 +50,19 @@ pub struct SpendRecordUpsert<'a> {
     pub now: &'a str,
 }
 
+/// Returns `true` when the row was newly inserted for this
+/// (platform, date, service_label) key, `false` when a row already existed
+/// and its `amount_usd`/`notes`/`updated_at` were refreshed in place.
 pub async fn upsert_spend_record(
     pool: &PgPool,
     record: SpendRecordUpsert<'_>,
-) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
-    sqlx::query(
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
         "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
          ON CONFLICT (platform, date, service_label) WHERE service_label IS NOT NULL
-         DO UPDATE SET amount_usd = EXCLUDED.amount_usd, notes = EXCLUDED.notes, updated_at = EXCLUDED.updated_at",
+         DO UPDATE SET amount_usd = EXCLUDED.amount_usd, notes = EXCLUDED.notes, updated_at = EXCLUDED.updated_at
+         RETURNING (xmax = 0)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(record.platform)
@@ -58,7 +73,7 @@ pub async fn upsert_spend_record(
     .bind(record.source)
     .bind(record.notes)
     .bind(record.now)
-    .execute(pool)
+    .fetch_one(pool)
     .await
 }
 
@@ -443,8 +458,8 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
         )
         .await
         {
-            Ok(r) => {
-                if r.rows_affected() > 0 {
+            Ok(inserted) => {
+                if inserted {
                     result.records_imported += 1;
                 } else {
                     result.records_skipped += 1;
@@ -578,7 +593,7 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                     )
                     .await
                     {
-                        Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                        Ok(inserted) => { if inserted { result.records_imported += 1; } else { result.records_skipped += 1; } }
                         Err(e) => result.errors.push(format!("insert error (actions): {e}")),
                     }
                 } else {
@@ -624,7 +639,7 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                     )
                     .await
                     {
-                        Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                        Ok(inserted) => { if inserted { result.records_imported += 1; } else { result.records_skipped += 1; } }
                         Err(e) => result.errors.push(format!("insert error (storage): {e}")),
                     }
                 } else {
@@ -815,7 +830,7 @@ pub async fn pull_aws_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
             )
             .await
             {
-                Ok(r) => { if r.rows_affected() > 0 { result.records_imported += 1; } else { result.records_skipped += 1; } }
+                Ok(inserted) => { if inserted { result.records_imported += 1; } else { result.records_skipped += 1; } }
                 Err(e) => result.errors.push(format!("insert error ({service} {date}): {e}")),
             }
         }
