@@ -530,8 +530,10 @@ paths:
         creditBalance (Fly.io removed per-invoice history from the public
         API) and records a monthly snapshot dated the first of the current
         month with platform "flyio" and source "flyio_graphql". Organizations
-        with a non-positive balance are counted in records_skipped, as are
-        duplicate month snapshots (ON CONFLICT DO NOTHING). Requires the
+        with a non-positive balance are counted in records_skipped. A later
+        sync in the same month refreshes the existing row's amount in place
+        (ON CONFLICT DO UPDATE) and is counted in records_skipped, not
+        records_imported. Requires the
         FLYIO_API_TOKEN environment variable on the server. No request body.
         Configuration, upstream, and per-row insert failures do NOT produce
         error status codes: the handler always returns 200 with any failures
@@ -584,7 +586,9 @@ paths:
         GitHub REST API and records monthly snapshots dated the first of the
         current month with platform "github" and source "github_api". Paid
         Actions minutes are priced at 0.008 USD per minute. Zero-spend
-        results and duplicate month snapshots are counted in records_skipped;
+        results are counted in records_skipped, and so is a later sync in the
+        same month, which refreshes the existing row's amount in place
+        (ON CONFLICT DO UPDATE) rather than importing a new row;
         a 404 from the Actions billing endpoint (free-tier account) is
         treated as zero spend. Storage endpoint failures are non-fatal and
         silently ignored. Requires the GITHUB_BILLING_TOKEN and
@@ -641,8 +645,9 @@ paths:
         GetCostAndUsage, monthly granularity, grouped by service) and inserts
         monthly records dated the first of each result month with platform
         "aws" and source "aws_cost_explorer". Zero or negative amounts are
-        ignored; duplicate rows are skipped via ON CONFLICT DO NOTHING and
-        counted in records_skipped. Requires the AWS_BILLING_ACCESS_KEY_ID
+        ignored. A month already recorded has its amount refreshed in place
+        (ON CONFLICT DO UPDATE) and is counted in records_skipped, not
+        records_imported. Requires the AWS_BILLING_ACCESS_KEY_ID
         and AWS_BILLING_SECRET_ACCESS_KEY environment variables on the
         server. No request body. Configuration, upstream, and per-row insert
         failures do NOT produce error status codes: the handler always
@@ -1238,12 +1243,12 @@ components:
         records_imported:
           type: integer
           minimum: 0
-          description: "Rows newly inserted by this pull."
+          description: "Rows newly inserted by this pull. A monthly row that already existed and was refreshed in place does NOT count here."
           example: 12
         records_skipped:
           type: integer
           minimum: 0
-          description: "Rows skipped as duplicates (ON CONFLICT DO NOTHING) or as zero-spend results."
+          description: "Rows not newly created by this pull: for the monthly upsert paths (flyio, github, aws) these are rows that already existed for the period and had amount_usd/notes/updated_at refreshed in place; for gcp's daily insert they are true duplicates left untouched (ON CONFLICT DO NOTHING). Zero-spend and non-positive results are also counted here."
           example: 18
         errors:
           type: array
