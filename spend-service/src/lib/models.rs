@@ -5,7 +5,28 @@ pub use axum_api_kit::{ApiError, HealthResponse};
 
 pub const VALID_PLATFORMS: &[&str] = &["gcp", "flyio", "anthropic", "github_copilot", "github", "aws"];
 pub const VALID_GRANULARITIES: &[&str] = &["daily", "monthly"];
-pub const VALID_SOURCES: &[&str] = &["manual", "bigquery", "flyio_graphql", "github_api", "aws_cost_explorer"];
+
+/// Provenance values for `SpendRecord.source`, one constant per writer.
+///
+/// These are the only values the service ever writes: `create_spend` stamps
+/// `SOURCE_MANUAL`, and each sync path stamps its own constant. The
+/// update/delete record-source guard compares against `SOURCE_MANUAL`.
+/// `VALID_SOURCES` is the code-side home of the vocabulary that
+/// `openapi.yaml` documents twice (the `SpendRecord.source` schema `enum`
+/// and the list `source` filter's "Known values" sentence);
+/// `tests/source_vocabulary.rs` is the drift guard that reads both.
+pub const SOURCE_MANUAL: &str = "manual";
+pub const SOURCE_BIGQUERY: &str = "bigquery";
+pub const SOURCE_FLYIO_GRAPHQL: &str = "flyio_graphql";
+pub const SOURCE_GITHUB_API: &str = "github_api";
+pub const SOURCE_AWS_COST_EXPLORER: &str = "aws_cost_explorer";
+pub const VALID_SOURCES: &[&str] = &[
+    SOURCE_MANUAL,
+    SOURCE_BIGQUERY,
+    SOURCE_FLYIO_GRAPHQL,
+    SOURCE_GITHUB_API,
+    SOURCE_AWS_COST_EXPLORER,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct SpendRecord {
