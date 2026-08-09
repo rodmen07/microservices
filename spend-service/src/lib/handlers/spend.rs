@@ -13,7 +13,7 @@ use crate::{
     models::{
         ApiError, CreateSpendRequest, ListSpendQuery, ListSpendResponse, MonthTotal,
         PlatformTotal, SpendRecord, SpendSummary, SummaryQuery, UpdateSpendRequest,
-        VALID_GRANULARITIES, VALID_PLATFORMS,
+        SOURCE_MANUAL, VALID_GRANULARITIES, VALID_PLATFORMS,
     },
     AppState,
 };
@@ -299,7 +299,7 @@ pub async fn create_spend(
     let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
 
     match sqlx::query(
-        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)\n         VALUES ($1, $2, $3, $4, $5, $6, 'manual', $7, $8, $9)",
+        "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
     )
     .bind(&id)
     .bind(&platform)
@@ -307,6 +307,7 @@ pub async fn create_spend(
     .bind(body.amount_usd)
     .bind(&granularity_trimmed)
     .bind(&final_service_label)
+    .bind(SOURCE_MANUAL)
     .bind(&final_notes)
     .bind(&now)
     .bind(&now)
@@ -329,7 +330,7 @@ pub async fn create_spend(
         amount_usd: body.amount_usd,
         granularity: granularity_trimmed,
         service_label: final_service_label,
-        source: "manual".to_string(),
+        source: SOURCE_MANUAL.to_string(),
         notes: final_notes,
         created_at: now.clone(),
         updated_at: now,
@@ -364,7 +365,7 @@ pub async fn update_spend(
         }
     };
 
-    if existing.source != "manual" {
+    if existing.source != SOURCE_MANUAL {
         return error_response(
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
@@ -579,7 +580,7 @@ pub async fn delete_spend(
         }
     };
 
-    if existing.source != "manual" {
+    if existing.source != SOURCE_MANUAL {
         return error_response(
             StatusCode::FORBIDDEN,
             "FORBIDDEN",

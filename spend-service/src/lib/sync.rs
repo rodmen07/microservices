@@ -5,7 +5,9 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::models::SyncResult;
+use crate::models::{
+    SyncResult, SOURCE_AWS_COST_EXPLORER, SOURCE_BIGQUERY, SOURCE_FLYIO_GRAPHQL, SOURCE_GITHUB_API,
+};
 
 // ---------------------------------------------------------------------------
 // Shared monthly upsert (SPEND-REFRESH-1)
@@ -289,13 +291,14 @@ pub async fn pull_gcp_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
         let id = Uuid::new_v4().to_string();
         match sqlx::query(
             "INSERT INTO spend_records (id, platform, date, amount_usd, granularity, service_label, source, notes, created_at, updated_at)
-             VALUES ($1, 'gcp', $2, $3, 'daily', $4, 'bigquery', NULL, $5, $6)
+             VALUES ($1, 'gcp', $2, $3, 'daily', $4, $5, NULL, $6, $7)
              ON CONFLICT DO NOTHING",
         )
         .bind(&id)
         .bind(date)
         .bind(amount)
         .bind(service_label)
+        .bind(SOURCE_BIGQUERY)
         .bind(&now)
         .bind(&now)
         .execute(pool)
@@ -451,7 +454,7 @@ pub async fn pull_flyio_billing(pool: &PgPool, client: &reqwest::Client) -> Sync
                 amount_usd,
                 granularity: "monthly",
                 service_label: &label,
-                source: "flyio_graphql",
+                source: SOURCE_FLYIO_GRAPHQL,
                 notes: None,
                 now: &now_str,
             },
@@ -586,7 +589,7 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                             amount_usd,
                             granularity: "monthly",
                             service_label: GITHUB_ACTIONS_LABEL,
-                            source: "github_api",
+                            source: SOURCE_GITHUB_API,
                             notes: Some(&notes),
                             now: &now_str,
                         },
@@ -632,7 +635,7 @@ pub async fn pull_github_billing(pool: &PgPool, client: &reqwest::Client) -> Syn
                             amount_usd,
                             granularity: "monthly",
                             service_label: GITHUB_STORAGE_LABEL,
-                            source: "github_api",
+                            source: SOURCE_GITHUB_API,
                             notes: Some(&notes),
                             now: &now_str,
                         },
@@ -823,7 +826,7 @@ pub async fn pull_aws_billing(pool: &PgPool, client: &reqwest::Client) -> SyncRe
                     amount_usd,
                     granularity: "monthly",
                     service_label: &service,
-                    source: "aws_cost_explorer",
+                    source: SOURCE_AWS_COST_EXPLORER,
                     notes: None,
                     now: &now_str,
                 },
