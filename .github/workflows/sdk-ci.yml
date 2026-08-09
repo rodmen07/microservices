@@ -1,0 +1,104 @@
+name: SDK CI
+
+# ─── Why this exists (SDK-CI-GATE-1) ─────────────────────────────────────────
+#
+# Before this workflow, NOTHING in CI compiled or tested sdks/typescript-sdk.
+# Measured 2026-08-08:
+#   - grep -rnE "npm|tsc|setup-node" .github/workflows/   →  exit 1, zero hits
+#   - hand-written TypeScript in the package               →  2353 lines
+#   - its test suite                                       →  1368 lines, 135 tests
+#
+# Worse, `sdks/` is a member of rust.yml's DOCS_RE allowlist, so an SDK-only PR
+# classifies docs-only and every cargo job AND the deploy matrix skip: PR #129
+# merged a 1410-line SDK diff to main under a fully green tick without one line
+# of it being compiled anywhere but a laptop. The SDK's compile-time route
+# pinning against each service's generated OpenAPI `paths` — the guard that
+# catches a renamed route or an uncovered new route — is enforced by `tsc` and
+# by nothing else, so its only runner was whoever remembered to run it.
+#
+# This workflow is that runner. It is deliberately paths-scoped and LEAN: it
+# needs no Rust, no database, no gcloud, and finishes in ~1 minute.
+#
+# NOT a required status context, deliberately: a paths-filtered workflow
+# creates no check run on a PR that does not touch sdks/**, and GitHub treats
+# a required context that never reported as permanently unsatisfied — the exact
+# failure that stranded every docs-only PR until PR #115 (see rust.yml's
+# header). Required-ness would need the always-run-then-classify pattern
+# rust.yml uses; if that is ever wanted, it is its own increment.
+
+on:
+  pull_request:
+    paths:
+      - "sdks/typescript-sdk/**"
+      # Self-exercising: a PR that edits this gate runs this gate (the
+      # security-audit.yml precedent — a gate that cannot run on the PR that
+      # changes it is precisely how a gate ships inert).
+      - ".github/workflows/sdk-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "sdks/typescript-sdk/**"
+      - ".github/workflows/sdk-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk:
+    name: SDK build and test
+    runs-on: ubuntu-latest
+
+    # Least privilege: this job reads the tree and reports through its own
+    # conclusion. No check-run writes, no comments, no issues.
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: sdks/typescript-sdk
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Node 24 = active LTS, and the exact major this gate was verified
+          # against locally when it shipped. package.json engines floor is
+          # >=20; the test runner's glob form (`node --test "tests/*.test.mjs"`)
+          # needs >=21, so the floor for RUNNING the suite is higher than the
+          # floor for CONSUMING the library.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: sdks/typescript-sdk/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `npm test` runs `npm run build` (tsc -p tsconfig.json) first, then the
+      # node --test suite — so this one step is BOTH the compile gate (route
+      # pinning, coverage assertions, DeclaresNoParameters/DeclaresRequiredQuery
+      # predicates all live in the type system) and the runtime-table gate
+      # (wrong-route CALLS, which the compile-time seam is provably blind to;
+      # see PR #129's control E).
+      - name: Build and test
+        run: npm test
+
+      # The route pinning guards the SDK against the COMMITTED generated types,
+      # not against the specs themselves. This step closes that half: regenerate
+      # from the per-service openapi.yaml sources (scripts/generate.mjs, pinned
+      # `npx --yes openapi-typescript@6`) and fail if the committed types have
+      # drifted. Caveat, recorded rather than hidden: the generator pins the
+      # MAJOR, so a new openapi-typescript 6.x that changes emitted formatting
+      # would redden this step without any repo change — if that happens, the
+      # fix is to regenerate and commit, not to delete this step.
+      - name: Generated types match the committed specs
+        run: |
+          npm run generate
+          if ! git diff --exit-code --stat -- src/generated/; then
+            echo "::error::src/generated/ is stale: 'npm run generate' produced a diff." \
+                 "The committed generated types no longer match the per-service" \
+                 "openapi.yaml specs. Re-run 'npm run generate' in sdks/typescript-sdk" \
+                 "and commit the result."
+            exit 1
+          fi
