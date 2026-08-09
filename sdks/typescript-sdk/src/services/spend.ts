@@ -35,7 +35,7 @@ import type { components, operations, paths } from "../generated/spend.js";
 /** Every route this module calls, pinned to the generated spec paths. */
 const ROUTES = [
   "/api/v1/spend",
-  "/api/v1/spend/summary",
+  "/api/v1/spend/summaries",
   "/api/v1/spend/sync/gcp",
   "/api/v1/spend/sync/flyio",
   "/api/v1/spend/sync/github",
