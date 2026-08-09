@@ -17,5 +17,5 @@ ignore = [
   # All services default to HS256; RSA keys are only used for token
   # verification on controlled infrastructure. Risk accepted.
   # Revisit: run `cargo update -p rsa` and re-check when upgrading dependencies.
-  # "RUSTSEC-2023-0071",  # PERTURBATION: entry disabled for the both-directions CI control
+  "RUSTSEC-2023-0071",
 ]
