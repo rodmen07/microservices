@@ -76,24 +76,19 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run security audit
-        # IDENTICAL to rust.yml's `Run security audit` step (rust.yml:351).
-        # rust.yml remains the source of truth for the accepted-advisory list;
-        # if RUSTSEC-2023-0071 ever gains a fix, both commands change together.
+        # IDENTICAL to rust.yml's `Run security audit` step — the guard test
+        # accounts-service/tests/audit_config_loaded.rs asserts the two
+        # commands never drift apart.
         #
         # --deny warnings: without it `cargo audit` exits 0 on `unsound` and
         # `yanked` advisories, so they accumulate behind a green check. Four had
         # (see rust.yml's comment and PR #110).
         #
-        # RUSTSEC-2023-0071: rsa Marvin Attack — no patch available in rsa 0.9.x.
-        # All services default to HS256; RSA is only used for token verification
-        # on controlled infrastructure. Risk accepted. This is the ONLY accepted
-        # advisory; every other finding fails this job.
-        #
-        # The ignore is passed on the COMMAND LINE and not read from the repo's
-        # `audit.toml`, which is dead config: cargo-audit loads
-        # `.cargo/audit.toml`, and this repo's file sits at the root, where it is
-        # never found. Proven 2026-08-08 by dropping `--ignore` from this exact
-        # command — `error: 1 vulnerability found!`, naming the very advisory the
-        # root audit.toml claims to ignore. Tracked as AUDIT-CONFIG-DEAD-1; do
-        # not "simplify" this line by trusting that file.
-        run: cargo audit --deny warnings --ignore RUSTSEC-2023-0071
+        # Accepted advisories live in `.cargo/audit.toml` (currently only
+        # RUSTSEC-2023-0071, rsa Marvin Attack — rationale in that file), which
+        # cargo-audit loads from the repo root. That file spent 074af8f..2026-08-08
+        # at the repo ROOT, where cargo-audit never found it, and the gate only
+        # behaved because this command carried a CLI `--ignore` duplicate
+        # (AUDIT-CONFIG-DEAD-1, fixed by moving the file and dropping the flag).
+        # Do not reintroduce a CLI `--ignore`: one enforcing home, the config.
+        run: cargo audit --deny warnings
