@@ -458,6 +458,17 @@ export interface components {
         "application/json": components["schemas"]["ApiError"];
       };
     };
+    /** @description Token is valid but the roles claim does not include admin. */
+    Forbidden: {
+      headers: {
+        "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+        "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+        "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+      };
+      content: {
+        "application/json": components["schemas"]["ApiError"];
+      };
+    };
     /** @description No spend record with the given ID exists. */
     NotFound: {
       headers: {
@@ -665,6 +676,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
     };
@@ -722,6 +734,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       422: components["responses"]["UnprocessableEntity"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
@@ -780,6 +793,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
     };
@@ -815,6 +829,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
     };
   };
@@ -851,6 +866,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
     };
   };
@@ -890,6 +906,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
     };
   };
@@ -926,6 +943,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
     };
   };
@@ -957,6 +975,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
@@ -991,9 +1010,12 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       /**
-       * @description The record's source is not "manual". Automated records (bigquery,
-       * flyio_graphql, github_api, aws_cost_explorer) cannot be deleted.
-       * This is a record-source guard, not a role check.
+       * @description Two independent guards answer 403 here, both with code FORBIDDEN,
+       * told apart by their message. The role gate runs first: "admin role
+       * required" when the roles claim does not include admin. Past it,
+       * the record-source guard answers "automated records cannot be
+       * deleted" when the record's source is not "manual" (bigquery,
+       * flyio_graphql, github_api, aws_cost_explorer).
        */
       403: {
         headers: {
@@ -1070,9 +1092,12 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       /**
-       * @description The record's source is not "manual". Automated records (bigquery,
-       * flyio_graphql, github_api, aws_cost_explorer) cannot be edited.
-       * This is a record-source guard, not a role check.
+       * @description Two independent guards answer 403 here, both with code FORBIDDEN,
+       * told apart by their message. The role gate runs first: "admin role
+       * required" when the roles claim does not include admin. Past it,
+       * the record-source guard answers "automated records cannot be
+       * edited" when the record's source is not "manual" (bigquery,
+       * flyio_graphql, github_api, aws_cost_explorer).
        */
       403: {
         headers: {
