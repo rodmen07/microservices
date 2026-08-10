@@ -14,14 +14,18 @@ info:
     listed under `servers` below, and live per-service health is published on
     the platform status board at https://rodmen07.github.io/infraportal/#/status.
 
-    Authentication: every /api/v1 route validates a bearer JWT in the handler.
-    Requests without a valid token receive 401. As implemented on main as of
-    2026-07-18 there is NO role gating: any valid JWT can call every route,
-    and the roles claim is parsed but never enforced. The only 403 responses
-    in this service are the automated-record guards on PATCH and DELETE
-    (records whose source is not "manual" cannot be edited or deleted).
-    Note: admin role gating is planned and arrives with the
-    refactor/adopt-axum-api-kit branch.
+    Authentication and authorization: every /api/v1 route validates a bearer
+    JWT in the handler and then requires the "admin" role, the same gate the
+    sibling CRM services apply. A missing, malformed, or invalid token
+    receives 401; a valid token whose roles claim does not include admin
+    receives 403 with code FORBIDDEN and message "admin role required". The
+    health and readiness probes are unauthenticated.
+
+    PATCH and DELETE carry a SECOND, independent 403: the record-source
+    guard, which refuses to edit or delete a record whose source is not
+    "manual". Both 403s use code FORBIDDEN and are distinguished by their
+    message; the role gate runs first, so an automated-record refusal is only
+    ever reachable by an admin caller.
 
     Error envelope: service-generated errors use the ApiError shape
     {"code", "message", "details?"}. Framework-generated rejections (malformed
@@ -49,9 +53,9 @@ tags:
   - name: Health
     description: "Liveness and readiness probes. Unauthenticated."
   - name: Spend
-    description: "Spend record CRUD and aggregated summary. Requires a bearer JWT (no role gating on main as of 2026-07-18)."
+    description: "Spend record CRUD and aggregated summary. Requires a bearer JWT whose roles claim includes admin."
   - name: Sync
-    description: "Billing sync pulls from external platforms. Requires a bearer JWT (no role gating on main as of 2026-07-18)."
+    description: "Billing sync pulls from external platforms. Requires a bearer JWT whose roles claim includes admin."
 security:
   - bearerAuth: []
 paths:
@@ -234,6 +238,8 @@ paths:
               example: "Failed to deserialize query string: limit: invalid digit found in string"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -380,6 +386,8 @@ paths:
               example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "429":
@@ -462,6 +470,8 @@ paths:
               example: "Failed to deserialize query string: duplicate field `date_from`"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -518,6 +528,8 @@ paths:
                       - "GCP_BILLING_SA_KEY not configured"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
   /api/v1/spend/sync/flyio:
@@ -574,6 +586,8 @@ paths:
                       - "FLYIO_API_TOKEN not configured"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
   /api/v1/spend/sync/github:
@@ -633,6 +647,8 @@ paths:
                       - "GITHUB_BILLING_TOKEN not configured"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
   /api/v1/spend/sync/aws:
@@ -689,6 +705,8 @@ paths:
                       - "AWS_BILLING_ACCESS_KEY_ID not configured"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
   /api/v1/spend/{id}:
@@ -736,6 +754,8 @@ paths:
                 updated_at: "2026-07-02T18:45:00Z"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -875,9 +895,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The record's source is not "manual". Automated records (bigquery,
-            flyio_graphql, github_api, aws_cost_explorer) cannot be edited.
-            This is a record-source guard, not a role check.
+            Two independent guards answer 403 here, both with code FORBIDDEN,
+            told apart by their message. The role gate runs first: "admin role
+            required" when the roles claim does not include admin. Past it,
+            the record-source guard answers "automated records cannot be
+            edited" when the record's source is not "manual" (bigquery,
+            flyio_graphql, github_api, aws_cost_explorer).
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/XRateLimitLimit"
@@ -924,9 +947,12 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: |
-            The record's source is not "manual". Automated records (bigquery,
-            flyio_graphql, github_api, aws_cost_explorer) cannot be deleted.
-            This is a record-source guard, not a role check.
+            Two independent guards answer 403 here, both with code FORBIDDEN,
+            told apart by their message. The role gate runs first: "admin role
+            required" when the roles claim does not include admin. Past it,
+            the record-source guard answers "automated records cannot be
+            deleted" when the record's source is not "manual" (bigquery,
+            flyio_graphql, github_api, aws_cost_explorer).
           headers:
             X-RateLimit-Limit:
               $ref: "#/components/headers/XRateLimitLimit"
@@ -958,9 +984,8 @@ components:
         default (AUTH_JWT_ALGORITHM also accepts HS384, HS512, RS256, RS384,
         RS512). The token must carry an exp claim and an iss claim matching
         AUTH_ISSUER (default "auth-service"). The sub claim identifies the
-        caller for audit logging. The roles claim is parsed but NOT enforced
-        on main as of 2026-07-18; admin role gating is planned and arrives
-        with the refactor/adopt-axum-api-kit branch.
+        caller for audit logging. The roles claim is ENFORCED: every /api/v1
+        route requires "admin" (case-insensitive) and answers 403 otherwise.
   schemas:
     SpendRecord:
       type: object
@@ -1342,6 +1367,22 @@ components:
               value:
                 code: AUTH_INVALID_TOKEN
                 message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but the roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
     NotFound:
       description: "No spend record with the given ID exists."
       headers:

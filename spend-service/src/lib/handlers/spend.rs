@@ -9,7 +9,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    auth::validate_authorization_header,
+    auth::{validate_authorization_header, ROLE_ADMIN},
     models::{
         ApiError, CreateSpendRequest, ListSpendQuery, ListSpendResponse, MonthTotal,
         PlatformTotal, SpendRecord, SpendSummary, SummaryQuery, UpdateSpendRequest,
@@ -36,6 +36,21 @@ fn require_auth(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Validates the Bearer token and requires the admin role, returning 403 for non-admin callers.
+// Every /api/v1 route in this service goes through here; the platform contract is documented in
+// docs/API.md ("401 vs 403 semantics") and in this service's openapi.yaml.
+fn require_admin(headers: &HeaderMap) -> Result<crate::auth::AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role(ROLE_ADMIN) {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
 fn validate_date(date: &str) -> bool {
     chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
 }
@@ -45,7 +60,7 @@ pub async fn list_spend(
     State(state): State<AppState>,
     Query(params): Query<ListSpendQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -145,7 +160,7 @@ pub async fn get_spend(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -174,7 +189,7 @@ pub async fn create_spend(
     State(state): State<AppState>,
     Json(body): Json<CreateSpendRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -345,7 +360,7 @@ pub async fn update_spend(
     State(state): State<AppState>,
     Json(body): Json<UpdateSpendRequest>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -560,7 +575,7 @@ pub async fn delete_spend(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -609,7 +624,7 @@ pub async fn get_summary(
     State(state): State<AppState>,
     Query(params): Query<SummaryQuery>,
 ) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -699,7 +714,7 @@ pub async fn get_summary(
 }
 
 pub async fn sync_gcp(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -716,7 +731,7 @@ pub async fn sync_gcp(headers: HeaderMap, State(state): State<AppState>) -> Resp
 }
 
 pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -733,7 +748,7 @@ pub async fn sync_flyio(headers: HeaderMap, State(state): State<AppState>) -> Re
 }
 
 pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -750,7 +765,7 @@ pub async fn sync_github(headers: HeaderMap, State(state): State<AppState>) -> R
 }
 
 pub async fn sync_aws(headers: HeaderMap, State(state): State<AppState>) -> Response {
-    let claims = match require_auth(&headers) {
+    let claims = match require_admin(&headers) {
         Ok(c) => c,
         Err(resp) => return resp,
     };

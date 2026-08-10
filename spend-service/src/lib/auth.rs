@@ -6,6 +6,11 @@ use serde::Deserialize;
 pub const AUTH_HEADER: &str = "Authorization";
 pub const AUTH_SCHEME: &str = "Bearer";
 
+/// The one role every `/api/v1` route in this service requires. Named rather
+/// than spelled inline so the handler gate and `tests/role_gating.rs` read the
+/// same token instead of each holding a copy of the string.
+pub const ROLE_ADMIN: &str = "admin";
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct AuthClaims {
     pub sub: String,

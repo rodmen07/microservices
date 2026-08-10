@@ -40,7 +40,7 @@ Authorization: Bearer <token>
 
 - **Obtaining a token:** tokens are issued by auth-service (`POST /auth/login` with credentials, or `POST /auth/token` for service tokens). With the infrastructure offline there is no live issuer; for local development, sign an HS256 token with the service's `AUTH_JWT_SECRET`.
 - **Validation:** services validate HS256 by default (`AUTH_JWT_ALGORITHM` also accepts HS384, HS512, RS256, RS384, RS512). Tokens must carry `exp` and an `iss` matching `AUTH_ISSUER` (default `auth-service`). The `sub` claim identifies the caller; `roles` is an array of strings, matched case-insensitively.
-- **Admin role requirement:** the CRM services gate every `/api/v1` route on the `admin` role, not just on a valid token.
+- **Admin role requirement:** **10 of the 11** workspace services gate every `/api/v1` route on the `admin` role, not just on a valid token — the nine gated by v1.16.0 PR2 (#92) plus spend-service. The exception, named rather than rounded away, is **search-service**, which authenticates every route but enforces no role; its write routes are called service-to-service by five sibling services, so its gate has to admit a service identity as well as `admin` and is tracked as its own increment. Verify per service rather than inheriting this sentence: `grep -n require_admin <service>/src/lib/handlers/*.rs`.
 
 ### 401 vs 403 semantics
 
@@ -56,6 +56,14 @@ A 403 body looks like:
 ```json
 { "code": "FORBIDDEN", "message": "admin role required" }
 ```
+
+`FORBIDDEN` is not exclusively the role gate. A service may raise its own
+resource-level 403 under the same code, and spend-service does: `PATCH` and
+`DELETE` refuse a record whose `source` is not `manual` with
+`{"code": "FORBIDDEN", "message": "automated records cannot be edited"}`.
+The role gate always runs first, so a resource-level 403 is only ever
+reachable by a caller who already passed it. Read the `message`, not just the
+code, when a client needs to tell the two apart.
 
 ---
 

@@ -20,13 +20,15 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
+// Every /api/v1 route requires the `admin` role (see tests/role_gating.rs for
+// the gate's own behaviour guard), so the token this suite reuses carries it.
 fn make_jwt() -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     let claims = json!({
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": ["admin"]
     });
     let token = encode(
         &Header::new(Algorithm::HS256),
