@@ -117,7 +117,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), Response> {
 }
 ```
 
-The `auth.rs` module follows one pattern across all services but is NOT byte-identical: eight services match `accounts-service` exactly, while `contacts`, and `projects`+`spend`, carry service-specific variants (role gating / validation differences). Key env vars:
+The `auth.rs` module follows one pattern across all services but is NOT byte-identical: as of 2026-08-10 seven services match `accounts-service` exactly (`md5sum */src/lib/auth.rs | sort` is the check), while `contacts`, `projects`+`spend`, and `search` carry service-specific variants (role gating / validation differences). `search-service` joined that list when its role gate shipped: it names both `ROLE_ADMIN` and `ROLE_SERVICE`, because two of its routes admit a machine identity. Key env vars:
 - `AUTH_JWT_SECRET` (**required** — `auth_secret()` panics at startup if unset; there is no default)
 - `AUTH_JWT_ALGORITHM` (default: `HS256`; supports RS256/RS384/RS512/HS384/HS512)
 - `AUTH_ISSUER` (default: `"auth-service"`)

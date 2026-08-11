@@ -15,10 +15,24 @@ impl AppState {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
-        Ok(Self {
+        Ok(Self::from_pool(pool))
+    }
+
+    /// Builds state around a pool the caller already owns, serving reads and
+    /// writes from it.
+    ///
+    /// Production goes through [`AppState::from_database_url`] or
+    /// [`AppState::with_read_replica`], which connect eagerly and run
+    /// migrations before reaching here. The seam exists so a caller can supply
+    /// a pool that has not connected: `tests/role_gating.rs` passes a lazily
+    /// created one, which lets the authorization gate — which rejects before
+    /// any query runs — be exercised against the real router without a
+    /// database.
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self {
             read_pool: pool.clone(),
             pool,
-        })
+        }
     }
 
     /// Runs migrations against `write_url` (primary), then opens separate pools

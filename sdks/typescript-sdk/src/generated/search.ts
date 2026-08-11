@@ -273,6 +273,32 @@ export interface components {
         "application/json": components["schemas"]["ApiError"];
       };
     };
+    /** @description Token is valid but its roles claim does not include admin. */
+    Forbidden: {
+      headers: {
+        "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+        "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+        "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+      };
+      content: {
+        "application/json": components["schemas"]["ApiError"];
+      };
+    };
+    /**
+     * @description Token is valid but its roles claim includes neither admin nor service.
+     * This is the write-through tier: peer CRM services call these two routes
+     * with a service identity, so the gate admits either role.
+     */
+    ForbiddenWriteThrough: {
+      headers: {
+        "X-RateLimit-Limit": components["headers"]["XRateLimitLimit"];
+        "X-RateLimit-Remaining": components["headers"]["XRateLimitRemaining"];
+        "X-RateLimit-Reset": components["headers"]["XRateLimitReset"];
+      };
+      content: {
+        "application/json": components["schemas"]["ApiError"];
+      };
+    };
     /** @description No document with the given ID exists. */
     NotFound: {
       headers: {
@@ -466,6 +492,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
     };
@@ -491,6 +518,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
     };
@@ -548,6 +576,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["ForbiddenWriteThrough"];
       422: components["responses"]["UnprocessableEntity"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
@@ -582,6 +611,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
@@ -614,6 +644,7 @@ export interface operations {
         content: never;
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
@@ -677,6 +708,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
       429: components["responses"]["RateLimited"];
@@ -714,6 +746,7 @@ export interface operations {
         content: never;
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["ForbiddenWriteThrough"];
       429: components["responses"]["RateLimited"];
       500: components["responses"]["InternalError"];
     };
