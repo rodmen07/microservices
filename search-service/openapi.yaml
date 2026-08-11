@@ -16,11 +16,19 @@ info:
     listed under `servers` below, and live per-service health is published on
     the platform status board at https://rodmen07.github.io/infraportal/#/status.
 
-    Authentication: every /api/v1 route validates a bearer JWT in the handler.
-    As of 2026-07-18 this service is authenticated but NOT role-gated on main:
-    the decoded roles claim is never checked, so any valid token can read and
-    write the search index, and this service never returns 403. The planned
-    gating (admin or service role required) is not yet implemented.
+    Authentication and authorization: every /api/v1 route validates a bearer
+    JWT in the handler and then checks the roles claim. The gate has two tiers.
+    The query, read, update-by-id and delete-by-id routes require the "admin"
+    role, the same gate the sibling CRM services apply. The two WRITE-THROUGH
+    routes — POST /api/v1/search/documents and
+    DELETE /api/v1/search/documents/by-entity/{entity_id}, which the CRM
+    services call fire-and-forget when an entity changes — require "admin" OR
+    "service", so a machine identity can keep the index in sync without being
+    an administrator. A missing, malformed, or invalid token receives 401; a
+    valid token whose roles claim does not carry the role the route requires
+    receives 403 with code FORBIDDEN and message "admin role required" or
+    "admin or service role required" respectively. The health and readiness
+    probes are unauthenticated.
 
     Error envelope: service-generated errors use the ApiError shape
     {"code", "message", "details?"}; this service never populates details.
@@ -50,13 +58,15 @@ tags:
     description: "Liveness and readiness probes. Unauthenticated."
   - name: Search
     description: |
-      Query the search index. Requires a bearer JWT; no role check is
-      performed on main as of 2026-07-18.
+      Query the search index. Requires a bearer JWT whose roles claim includes
+      admin.
   - name: Documents
     description: |
       Document index CRUD, used by peer services to keep the index in sync.
-      Requires a bearer JWT; no role check is performed on main as of
-      2026-07-18.
+      Requires a bearer JWT whose roles claim includes admin, except for the
+      two write-through routes (POST /api/v1/search/documents and
+      DELETE /api/v1/search/documents/by-entity/{entity_id}), which also admit
+      the service role that peer services carry.
 security:
   - bearerAuth: []
 paths:
@@ -194,6 +204,8 @@ paths:
               example: "Failed to deserialize query string: missing field `q`"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -242,6 +254,8 @@ paths:
                   updated_at: "2026-07-10T11:00:00Z"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -309,6 +323,8 @@ paths:
               example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenWriteThrough"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "429":
@@ -358,6 +374,8 @@ paths:
                 updated_at: "2026-07-18T14:30:00Z"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -424,6 +442,8 @@ paths:
               example: "Failed to parse the request body as JSON: expected value at line 1 column 1"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
@@ -453,6 +473,8 @@ paths:
               $ref: "#/components/headers/XRateLimitReset"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -492,6 +514,8 @@ paths:
               $ref: "#/components/headers/XRateLimitReset"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/ForbiddenWriteThrough"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -509,10 +533,11 @@ components:
         The token must carry an exp claim and an iss claim matching
         AUTH_ISSUER (default "auth-service"). The sub claim identifies the
         caller and is logged as the actor. The roles claim (array of strings,
-        defaults to empty) is decoded but NOT checked by any route on main
-        as of 2026-07-18: any valid token can call every /api/v1
-        route, and 403 is never returned. Planned gating (admin or service
-        role) is not yet implemented.
+        defaults to empty, matched case-insensitively) is ENFORCED: every
+        /api/v1 route requires "admin", except the two write-through routes
+        (POST /api/v1/search/documents and
+        DELETE /api/v1/search/documents/by-entity/{entity_id}), which accept
+        "admin" or "service". A token carrying neither receives 403.
   schemas:
     SearchDocument:
       type: object
@@ -708,6 +733,41 @@ components:
               value:
                 code: AUTH_INVALID_TOKEN
                 message: "token validation failed"
+    Forbidden:
+      description: "Token is valid but its roles claim does not include admin."
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin role required"
+    ForbiddenWriteThrough:
+      description: |
+        Token is valid but its roles claim includes neither admin nor service.
+        This is the write-through tier: peer CRM services call these two routes
+        with a service identity, so the gate admits either role.
+      headers:
+        X-RateLimit-Limit:
+          $ref: "#/components/headers/XRateLimitLimit"
+        X-RateLimit-Remaining:
+          $ref: "#/components/headers/XRateLimitRemaining"
+        X-RateLimit-Reset:
+          $ref: "#/components/headers/XRateLimitReset"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiError"
+          example:
+            code: FORBIDDEN
+            message: "admin or service role required"
     NotFound:
       description: "No document with the given ID exists."
       headers:

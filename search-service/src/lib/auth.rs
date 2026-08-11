@@ -6,6 +6,16 @@ use serde::Deserialize;
 pub const AUTH_HEADER: &str = "Authorization";
 pub const AUTH_SCHEME: &str = "Bearer";
 
+/// Role the platform's other ten services require on every `/api/v1` route.
+pub const ROLE_ADMIN: &str = "admin";
+
+/// Machine identity for the write-through indexing path. The five CRM siblings
+/// (`accounts`, `activities`, `contacts`, `opportunities`, `projects`) push and
+/// delete index documents from their `pipeline.rs` with a token read from
+/// `SEARCH_SERVICE_TOKEN`, so the two write-through routes admit this role as
+/// well as `admin`. Same name and meaning as audit-service's ingest gate.
+pub const ROLE_SERVICE: &str = "service";
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct AuthClaims {
     pub sub: String,

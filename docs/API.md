@@ -40,7 +40,7 @@ Authorization: Bearer <token>
 
 - **Obtaining a token:** tokens are issued by auth-service (`POST /auth/login` with credentials, or `POST /auth/token` for service tokens). With the infrastructure offline there is no live issuer; for local development, sign an HS256 token with the service's `AUTH_JWT_SECRET`.
 - **Validation:** services validate HS256 by default (`AUTH_JWT_ALGORITHM` also accepts HS384, HS512, RS256, RS384, RS512). Tokens must carry `exp` and an `iss` matching `AUTH_ISSUER` (default `auth-service`). The `sub` claim identifies the caller; `roles` is an array of strings, matched case-insensitively.
-- **Admin role requirement:** **10 of the 11** workspace services gate every `/api/v1` route on the `admin` role, not just on a valid token — the nine gated by v1.16.0 PR2 (#92) plus spend-service. The exception, named rather than rounded away, is **search-service**, which authenticates every route but enforces no role; its write routes are called service-to-service by five sibling services, so its gate has to admit a service identity as well as `admin` and is tracked as its own increment. Verify per service rather than inheriting this sentence: `grep -n require_admin <service>/src/lib/handlers/*.rs`.
+- **Admin role requirement:** **all 11** workspace services gate every `/api/v1` route on a role, not just on a valid token — the nine gated by v1.16.0 PR2 (#92), plus spend-service and search-service. Ten of them are admin-only. **search-service is the one two-tier gate:** its two write-through routes, `POST /api/v1/search/documents` and `DELETE /api/v1/search/documents/by-entity/{entity_id}`, accept the `service` role as well as `admin`, because the five CRM services call them fire-and-forget when an entity changes and an admin-only gate there would stop write-through indexing silently; every other route in that service is admin-only. Verify per service rather than inheriting this sentence: `grep -n "require_admin\|require_admin_or_service" <service>/src/lib/handlers/*.rs`.
 
 ### 401 vs 403 semantics
 
@@ -50,12 +50,16 @@ Authorization: Bearer <token>
 | 401 | Header is not exactly `Bearer <token>` | `AUTH_INVALID_FORMAT` |
 | 401 | Signature, expiry, or issuer validation failed | `AUTH_INVALID_TOKEN` |
 | 403 | Token valid but `roles` does not include `admin` | `FORBIDDEN` |
+| 403 | Token valid but `roles` includes neither `admin` nor `service`, on search-service's two write-through routes | `FORBIDDEN` |
 
 A 403 body looks like:
 
 ```json
 { "code": "FORBIDDEN", "message": "admin role required" }
 ```
+
+On search-service's write-through routes the message is `"admin or service
+role required"` instead; the code is the same.
 
 `FORBIDDEN` is not exclusively the role gate. A service may raise its own
 resource-level 403 under the same code, and spend-service does: `PATCH` and

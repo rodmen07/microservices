@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
-    auth::{validate_authorization_header, AuthClaims},
+    auth::{validate_authorization_header, AuthClaims, ROLE_ADMIN, ROLE_SERVICE},
     models::{ApiError, IndexDocumentRequest, SearchDocument, SearchQuery, SearchResult},
 };
 
@@ -30,13 +30,44 @@ fn require_auth(headers: &HeaderMap) -> Result<AuthClaims, Response> {
         .map_err(|err| error_response(StatusCode::UNAUTHORIZED, err.code(), err.message()))
 }
 
+// Authenticates, then requires the admin role: the query and administrative
+// routes, matching the gate the platform's other ten services apply
+fn require_admin(headers: &HeaderMap) -> Result<AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role(ROLE_ADMIN) {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin role required",
+        ));
+    }
+    Ok(claims)
+}
+
+// Authenticates, then requires admin OR service: the two write-through routes
+// the five CRM siblings call from their pipeline.rs. Those calls are
+// fire-and-forget — the caller ignores the response — so an admin-only gate
+// here would stop write-through indexing silently. Same shape and message as
+// audit-service's ingest gate.
+fn require_admin_or_service(headers: &HeaderMap) -> Result<AuthClaims, Response> {
+    let claims = require_auth(headers)?;
+    if !claims.has_role(ROLE_ADMIN) && !claims.has_role(ROLE_SERVICE) {
+        return Err(error_response(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "admin or service role required",
+        ));
+    }
+    Ok(claims)
+}
+
 // Searches indexed documents by a query term against title and body, returning truncated snippets
 pub async fn search_documents(
     headers: HeaderMap,
     Query(query): Query<SearchQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchResult>>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let term = query.q.trim().to_lowercase();
     if term.is_empty() {
@@ -90,7 +121,7 @@ pub async fn list_documents(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SearchDocument>>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let rows = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -116,7 +147,7 @@ pub async fn get_document(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<SearchDocument>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let row = sqlx::query_as::<_, SearchDocument>(
         "SELECT id, entity_type, entity_id, title, body, created_at, updated_at
@@ -144,7 +175,7 @@ pub async fn index_document(
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Response, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin_or_service(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -211,7 +242,7 @@ pub async fn delete_document_by_entity(
     Path(entity_id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin_or_service(&headers)?;
 
     sqlx::query("DELETE FROM search_documents WHERE entity_id = $1")
         .bind(&entity_id)
@@ -237,7 +268,7 @@ pub async fn update_document(
     State(state): State<AppState>,
     Json(req): Json<IndexDocumentRequest>,
 ) -> Result<Json<SearchDocument>, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let entity_type = req.entity_type.trim().to_string();
     let entity_id = req.entity_id.trim().to_string();
@@ -318,7 +349,7 @@ pub async fn delete_document(
     Path(id): Path<String>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, Response> {
-    let claims = require_auth(&headers)?;
+    let claims = require_admin(&headers)?;
 
     let result = sqlx::query("DELETE FROM search_documents WHERE id = $1")
         .bind(&id)
