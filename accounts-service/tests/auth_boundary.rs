@@ -312,10 +312,18 @@ fn a_token_declaring_another_issuer_is_rejected() {
 
 #[test]
 fn known_gap_a_token_with_no_issuer_claim_at_all_is_accepted() {
-    // Characterisation test for AUTH-ISS-OPTIONAL-1 (LOW, latent — filed in
+    // Characterisation test for AUTH-ISS-OPTIONAL-1 (MED — filed in
     // backlogs/microservices.md, deliberately NOT fixed here: making `iss`
     // mandatory would start rejecting every live token that omits it, which is
     // a production behaviour change and its own increment).
+    //
+    // This is a PUBLISHED contract the code does not keep. `docs/API.md:42`
+    // and the `bearerAuth` description in all eleven `openapi.yaml` files —
+    // rendered on the public playground — say "Tokens must carry `exp` and an
+    // `iss` matching AUTH_ISSUER (default \"auth-service\")". The `exp` half
+    // holds (`a_token_carrying_no_exp_claim_is_rejected`); the `iss` half does
+    // not. The doc states the stronger, intended contract, so the fix belongs
+    // in the code and the doc must NOT be weakened to match this test.
     //
     // `validate_authorization_header` calls `validation.set_issuer(...)`, but
     // that only populates the SET of acceptable issuers; it does not add `iss`
