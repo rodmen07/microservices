@@ -17,7 +17,10 @@ async fn test_app() -> axum::Router {
     build_router(state)
 }
 
-fn make_jwt() -> String {
+// Signs a token carrying `roles`. Every /api/v1 route now requires a role (see
+// tests/role_gating.rs for the gate's own behaviour guard), so this suite —
+// which is about handler behaviour, not authorization — reuses an admin token.
+fn make_jwt_with_roles(roles: &[&str]) -> String {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use serde_json::json;
 
@@ -25,7 +28,7 @@ fn make_jwt() -> String {
         "sub": "test-user",
         "iss": "auth-service",
         "exp": 9999999999u64,
-        "roles": []
+        "roles": roles
     });
 
     let token = encode(
@@ -36,6 +39,16 @@ fn make_jwt() -> String {
     .unwrap();
 
     format!("Bearer {token}")
+}
+
+fn make_jwt() -> String {
+    make_jwt_with_roles(&["admin"])
+}
+
+// The machine identity the five CRM services carry when they push and delete
+// index documents from their pipeline.rs.
+fn make_service_jwt() -> String {
+    make_jwt_with_roles(&["service"])
 }
 
 async fn body_json(body: Body) -> Value {
@@ -530,6 +543,84 @@ async fn search_with_empty_q_returns_empty() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_json(resp.into_body()).await;
     assert_eq!(body.as_array().unwrap().len(), 0);
+}
+
+// The production write-through path, end to end against a real database: a
+// service token indexes a document and then deletes it by source entity, the
+// two calls the CRM siblings make from pipeline.rs. tests/role_gating.rs proves
+// the gate ADMITS a service token; this proves the admitted request actually
+// completes, which is the half that needs a database. The search term is unique
+// to this test so it cannot collide with the other suites' row counts.
+#[tokio::test]
+async fn a_service_token_completes_the_write_through_round_trip() {
+    let app = test_app().await;
+    let service_auth = make_service_jwt();
+    let admin_auth = make_jwt();
+
+    let index_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/search/documents")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::AUTHORIZATION, &service_auth)
+                .body(Body::from(
+                    json!({
+                        "entity_type": "account",
+                        "entity_id": "writethrough-probe-001",
+                        "title": "Write-through probe",
+                        "body": "indexed by a servicetokenroundtrip caller"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(index_resp.status(), StatusCode::CREATED);
+
+    let found = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?q=servicetokenroundtrip")
+                .header(header::AUTHORIZATION, &admin_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found.status(), StatusCode::OK);
+    let results = body_json(found.into_body()).await;
+    assert_eq!(results.as_array().unwrap().len(), 1);
+
+    let delete_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/search/documents/by-entity/writethrough-probe-001")
+                .header(header::AUTHORIZATION, &service_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_resp.status(), StatusCode::NO_CONTENT);
+
+    let gone = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?q=servicetokenroundtrip")
+                .header(header::AUTHORIZATION, &admin_auth)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let remaining = body_json(gone.into_body()).await;
+    assert_eq!(remaining.as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
