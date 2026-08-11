@@ -11,7 +11,7 @@
   },
   "info": {
     "description": {
-      "content": "Postman collection for the InfraPortal CRM platform (v1.16.3 PR2), generated from the eleven per-service OpenAPI 3.0.3 specs by postman/generate-collection.mjs. Do not edit by hand; edit the specs and regenerate.\n\nAll runtime endpoints have been offline since 2026-06-04 (infrastructure decommissioned to zero); the collection documents the API contract as implemented in code. Point {{baseUrl}} at a locally running stack (default http://localhost:8080, the local go-gateway) and supply a dev JWT in {{token}}. See postman/README.md and docs/API.md.",
+      "content": "Postman collection for the InfraPortal CRM platform (v1.16.3 PR2), generated from the eleven per-service OpenAPI 3.0.3 specs by postman/generate-collection.mjs. Do not edit by hand; edit the specs and regenerate.\n\nRuntime status is not asserted here: the eleven services are deployed on Google Cloud Run, and live per-service health is published on the platform status board at https://rodmen07.github.io/infraportal/#/status. This collection documents the API contract as implemented in code. Point {{baseUrl}} at a locally running stack (default http://localhost:8080, the local go-gateway) and supply a dev JWT in {{token}}. See postman/README.md and docs/API.md.",
       "type": "text/plain"
     },
     "name": "InfraPortal Platform API",
@@ -20,7 +20,7 @@
   "item": [
     {
       "description": {
-        "content": "CRM accounts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on customer accounts plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM accounts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on customer accounts plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -4451,7 +4451,7 @@
     },
     {
       "description": {
-        "content": "CRM activities service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on activities (calls,\nemails, meetings, tasks) linked optionally to accounts and contacts, plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. Because the admin\nrole is required on every route, the owner-scoped query paths that exist in\nthe handlers are unreachable: authenticated callers always operate on all\nactivities.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler validation failures in this\nservice use HTTP 422 with the ApiError envelope. Framework-generated\nrejections (malformed JSON syntax, JSON body that fails deserialization)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below. No route in this service takes\nquery parameters, so query-string rejections cannot occur.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM activities service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on activities (calls,\nemails, meetings, tasks) linked optionally to accounts and contacts, plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. Because the admin\nrole is required on every route, the owner-scoped query paths that exist in\nthe handlers are unreachable: authenticated callers always operate on all\nactivities.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler validation failures in this\nservice use HTTP 422 with the ApiError envelope. Framework-generated\nrejections (malformed JSON syntax, JSON body that fails deserialization)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below. No route in this service takes\nquery parameters, so query-string rejections cannot occur.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -8369,7 +8369,7 @@
     },
     {
       "description": {
-        "content": "Immutable audit trail service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. CRM services forward mutation events here;\nadmins query the resulting append-only log. Provides audit event ingestion\nand listing plus health and readiness probes. There are no update or delete\nroutes: audit events are write-once.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: both /api/v1 routes validate a bearer JWT in the handler.\nRequests without a valid token receive 401. Role requirements differ per\noperation: GET /api/v1/audit-events requires the \"admin\" role (403 body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"});\nPOST /api/v1/audit-events accepts either the \"admin\" or the \"service\" role\n(403 body {\"code\": \"FORBIDDEN\", \"message\": \"admin or service role\nrequired\"}). CRM services forward the caller's admin token; the \"service\"\nrole covers machine writers. /health and /ready are unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below. Note that this service also generates\nhandler-level 422 responses in the ApiError envelope when entity_type or\naction is not in the accepted set.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "Immutable audit trail service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. CRM services forward mutation events here;\nadmins query the resulting append-only log. Provides audit event ingestion\nand listing plus health and readiness probes. There are no update or delete\nroutes: audit events are write-once.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: both /api/v1 routes validate a bearer JWT in the handler.\nRequests without a valid token receive 401. Role requirements differ per\noperation: GET /api/v1/audit-events requires the \"admin\" role (403 body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"});\nPOST /api/v1/audit-events accepts either the \"admin\" or the \"service\" role\n(403 body {\"code\": \"FORBIDDEN\", \"message\": \"admin or service role\nrequired\"}). CRM services forward the caller's admin token; the \"service\"\nrole covers machine writers. /health and /ready are unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below. Note that this service also generates\nhandler-level 422 responses in the ApiError envelope when entity_type or\naction is not in the accepted set.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -11200,7 +11200,7 @@
     },
     {
       "description": {
-        "content": "CRM workflow automation service for the InfraPortal platform. Rust\n(axum 0.8) with PostgreSQL persistence. Provides CRUD operations on\nautomation workflows (trigger event to action type mappings) plus health\nand readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. /health and\n/ready are unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler validation failures in this\nservice return 422 with the ApiError envelope. Framework-generated\nrejections (malformed JSON syntax, JSON body that fails deserialization)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM workflow automation service for the InfraPortal platform. Rust\n(axum 0.8) with PostgreSQL persistence. Provides CRUD operations on\nautomation workflows (trigger event to action type mappings) plus health\nand readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. /health and\n/ready are unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler validation failures in this\nservice return 422 with the ApiError envelope. Framework-generated\nrejections (malformed JSON syntax, JSON body that fails deserialization)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -15281,7 +15281,7 @@
     },
     {
       "description": {
-        "content": "CRM contacts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on contact records plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role (require_admin). Requests\nwithout a valid token receive 401; valid tokens without the admin role\nreceive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. The handlers\ncontain owner-scoped query branches for non-admin callers, but they are\nunreachable on this branch because require_admin rejects non-admin tokens\nbefore any query runs.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nCross-service validation: when a request supplies a non-blank account_id,\nthe service verifies it with a GET to accounts-service\n(ACCOUNTS_SERVICE_URL). A non-2xx or failed call yields 422 with\n{\"code\": \"INVALID_ACCOUNT\", \"message\": \"account not found\"}. If\nACCOUNTS_SERVICE_URL is unset the check is skipped (fail-open for local\ndevelopment).\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM contacts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on contact records plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role (require_admin). Requests\nwithout a valid token receive 401; valid tokens without the admin role\nreceive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. The handlers\ncontain owner-scoped query branches for non-admin callers, but they are\nunreachable on this branch because require_admin rejects non-admin tokens\nbefore any query runs.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nCross-service validation: when a request supplies a non-blank account_id,\nthe service verifies it with a GET to accounts-service\n(ACCOUNTS_SERVICE_URL). A non-2xx or failed call yields 422 with\n{\"code\": \"INVALID_ACCOUNT\", \"message\": \"account not found\"}. If\nACCOUNTS_SERVICE_URL is unset the check is skipped (fail-open for local\ndevelopment).\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -20138,7 +20138,7 @@
     },
     {
       "description": {
-        "content": "Third-party integration connections service for the InfraPortal platform.\nRust (axum 0.8) with PostgreSQL persistence. Provides CRUD operations on\nintegration connection records (provider, account reference, sync status)\nplus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. /health and /ready\nare unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization) are produced by the axum Json\nextractor before the handler runs and have text/plain bodies; because auth\nis checked inside the handler, these body rejections take precedence over\n401/403. They are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "Third-party integration connections service for the InfraPortal platform.\nRust (axum 0.8) with PostgreSQL persistence. Provides CRUD operations on\nintegration connection records (provider, account reference, sync status)\nplus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. /health and /ready\nare unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization) are produced by the axum Json\nextractor before the handler runs and have text/plain bodies; because auth\nis checked inside the handler, these body rejections take precedence over\n401/403. They are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -24323,7 +24323,7 @@
     },
     {
       "description": {
-        "content": "CRM opportunities service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. Provides CRUD operations on sales\nopportunities plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. /health and /ready are open.\nRequests without a valid token receive 401; valid tokens without the admin\nrole receive 403 with body {\"code\": \"FORBIDDEN\", \"message\": \"admin role\nrequired\"}.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler-level validation failures return\n422 with the ApiError envelope. Framework-generated rejections (malformed\nJSON syntax, JSON body that fails deserialization, undecodable query\nstrings) are produced by axum before the handler runs and have text/plain\nbodies; they are documented per operation below. Because the body\nextractor runs before the in-handler auth check, a malformed body is\nrejected with 400 or 422 even when the request carries no token.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM opportunities service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. Provides CRUD operations on sales\nopportunities plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role. /health and /ready are open.\nRequests without a valid token receive 401; valid tokens without the admin\nrole receive 403 with body {\"code\": \"FORBIDDEN\", \"message\": \"admin role\nrequired\"}.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Handler-level validation failures return\n422 with the ApiError envelope. Framework-generated rejections (malformed\nJSON syntax, JSON body that fails deserialization, undecodable query\nstrings) are produced by axum before the handler runs and have text/plain\nbodies; they are documented per operation below. Because the body\nextractor runs before the in-handler auth check, a malformed body is\nrejected with 400 or 422 even when the request carries no token.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -28707,7 +28707,7 @@
     },
     {
       "description": {
-        "content": "Client portal projects service for the InfraPortal platform. Rust\n(axum 0.8) with PostgreSQL persistence. Manages projects, milestones,\ndeliverables, portal messages, external links, and synced email threads,\nplus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: mixed model, validated in-handler on every /api/v1 route.\nRequests without a valid bearer JWT receive 401. Role behavior:\n\n- admin: full access to every route.\n- client: read access (list/get projects, milestones, deliverables,\n  messages, links, emails) scoped to projects whose client_user_id equals\n  the JWT sub claim, plus the ability to post messages on those projects.\n  A client probing a project (or milestone under a project) that is not\n  assigned to them receives 404 with the same body as a missing row, not\n  403. This is by design: cross-client probes are indistinguishable from\n  nonexistent resources, so project existence is never disclosed.\n- any other role: 403 {\"code\": \"FORBIDDEN\", \"message\": \"admin or client\n  role required\"} on the read routes and on message creation.\n\nEvery mutation except message creation (create/update/delete of projects,\nmilestones, deliverables, links, and the email sync) is admin-only and\nreturns 403 {\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"} for\nany non-admin caller, including clients. /health and /ready are\nunauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization) are produced by axum before\nthe handler runs and have text/plain bodies; they are documented per\noperation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "Client portal projects service for the InfraPortal platform. Rust\n(axum 0.8) with PostgreSQL persistence. Manages projects, milestones,\ndeliverables, portal messages, external links, and synced email threads,\nplus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: mixed model, validated in-handler on every /api/v1 route.\nRequests without a valid bearer JWT receive 401. Role behavior:\n\n- admin: full access to every route.\n- client: read access (list/get projects, milestones, deliverables,\n  messages, links, emails) scoped to projects whose client_user_id equals\n  the JWT sub claim, plus the ability to post messages on those projects.\n  A client probing a project (or milestone under a project) that is not\n  assigned to them receives 404 with the same body as a missing row, not\n  403. This is by design: cross-client probes are indistinguishable from\n  nonexistent resources, so project existence is never disclosed.\n- any other role: 403 {\"code\": \"FORBIDDEN\", \"message\": \"admin or client\n  role required\"} on the read routes and on message creation.\n\nEvery mutation except message creation (create/update/delete of projects,\nmilestones, deliverables, links, and the email sync) is admin-only and\nreturns 403 {\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"} for\nany non-admin caller, including clients. /health and /ready are\nunauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization) are produced by axum before\nthe handler runs and have text/plain bodies; they are documented per\noperation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -45902,7 +45902,7 @@
     },
     {
       "description": {
-        "content": "CRM reporting service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD on saved report definitions, CSV and\nJSON export, and dashboard aggregates that combine local report counts\nwith totals fetched live from the accounts, contacts, opportunities, and\nactivities services, plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route, including /api/v1/dashboard, validates\na bearer JWT in the handler and additionally requires the \"admin\" role.\n/health and /ready are unauthenticated. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. Because the admin\nrole is required on every route, the owner-scoped (non-admin) query\nbranches that exist in the handlers are unreachable on this branch: every\nauthorized caller sees all reports.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, duplicated query parameters)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below. Body-validation failures in the\ncreate and update handlers return 422 with the ApiError envelope and code\nVALIDATION_ERROR; the export format check is the one handler-level 400,\nwith code INVALID_FORMAT.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM reporting service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD on saved report definitions, CSV and\nJSON export, and dashboard aggregates that combine local report counts\nwith totals fetched live from the accounts, contacts, opportunities, and\nactivities services, plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route, including /api/v1/dashboard, validates\na bearer JWT in the handler and additionally requires the \"admin\" role.\n/health and /ready are unauthenticated. Requests without a valid token\nreceive 401; valid tokens without the admin role receive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. Because the admin\nrole is required on every route, the owner-scoped (non-admin) query\nbranches that exist in the handlers are unreachable on this branch: every\nauthorized caller sees all reports.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, duplicated query parameters)\nare produced by axum before the handler runs and have text/plain bodies;\nthey are documented per operation below. Body-validation failures in the\ncreate and update handlers return 422 with the ApiError envelope and code\nVALIDATION_ERROR; the export format check is the one handler-level 400,\nwith code INVALID_FORMAT.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -52666,7 +52666,7 @@
     },
     {
       "description": {
-        "content": "Platform search index for the InfraPortal CRM. Rust (axum 0.8) with\nPostgreSQL persistence and an optional read replica: when\nDATABASE_REPLICA_URL is set, search, list, and get queries run on the\nreplica pool while indexing writes and the health ping run on the primary.\nPeer services (accounts-service and the other CRM services) push documents\ninto this index on entity create, update, and delete, fire-and-forget.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler.\nAs of 2026-07-18 this service is authenticated but NOT role-gated on main:\nthe decoded roles claim is never checked, so any valid token can read and\nwrite the search index, and this service never returns 403. The planned\ngating (admin or service role required) is not yet implemented.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}; this service never populates details.\nFramework-generated rejections (malformed JSON, JSON body that fails\ndeserialization, missing or invalid query parameters) are produced by axum\nbefore the handler runs, which means before the auth check, and have\ntext/plain bodies; they are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "Platform search index for the InfraPortal CRM. Rust (axum 0.8) with\nPostgreSQL persistence and an optional read replica: when\nDATABASE_REPLICA_URL is set, search, list, and get queries run on the\nreplica pool while indexing writes and the health ping run on the primary.\nPeer services (accounts-service and the other CRM services) push documents\ninto this index on entity create, update, and delete, fire-and-forget.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication and authorization: every /api/v1 route validates a bearer\nJWT in the handler and then checks the roles claim. The gate has two tiers.\nThe query, read, update-by-id and delete-by-id routes require the \"admin\"\nrole, the same gate the sibling CRM services apply. The two WRITE-THROUGH\nroutes — POST /api/v1/search/documents and\nDELETE /api/v1/search/documents/by-entity/{entity_id}, which the CRM\nservices call fire-and-forget when an entity changes — require \"admin\" OR\n\"service\", so a machine identity can keep the index in sync without being\nan administrator. A missing, malformed, or invalid token receives 401; a\nvalid token whose roles claim does not carry the role the route requires\nreceives 403 with code FORBIDDEN and message \"admin role required\" or\n\"admin or service role required\" respectively. The health and readiness\nprobes are unauthenticated.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}; this service never populates details.\nFramework-generated rejections (malformed JSON, JSON body that fails\ndeserialization, missing or invalid query parameters) are produced by axum\nbefore the handler runs, which means before the auth check, and have\ntext/plain bodies; they are documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -52915,7 +52915,7 @@
           "name": "Health"
         },
         {
-          "description": "Query the search index. Requires a bearer JWT; no role check is\nperformed on main as of 2026-07-18.\n",
+          "description": "Query the search index. Requires a bearer JWT whose roles claim includes\nadmin.\n",
           "item": [
             {
               "event": [],
@@ -53342,6 +53342,87 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "(Required) Search term. Required: omitting the parameter entirely is rejected\nwith 400 by the axum Query extractor. Present-but-empty (q=) or\nwhitespace-only values return 200 with an empty array.\n",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "q",
+                          "value": "globex"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -53517,7 +53598,7 @@
           "name": "Search"
         },
         {
-          "description": "Document index CRUD, used by peer services to keep the index in sync.\nRequires a bearer JWT; no role check is performed on main as of\n2026-07-18.\n",
+          "description": "Document index CRUD, used by peer services to keep the index in sync.\nRequires a bearer JWT whose roles claim includes admin, except for the\ntwo write-through routes (POST /api/v1/search/documents and\nDELETE /api/v1/search/documents/by-entity/{entity_id}), which also admit\nthe service role that peer services carry.\n",
           "item": [
             {
               "event": [],
@@ -53842,6 +53923,78 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
@@ -54444,6 +54597,91 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin or service role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim includes neither admin nor service.\nThis is the write-through tier: peer CRM services call these two routes\nwith a service identity, so the gate admits either role.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"entity_type\": \"account\",\n  \"entity_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"title\": \"Globex Corporation\",\n  \"body\": \"Globex Corporation globex.com active\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
@@ -55050,6 +55288,79 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
@@ -55747,6 +56058,92 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"entity_type\": \"account\",\n  \"entity_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"title\": \"Globex Corporation (renamed)\",\n  \"body\": \"Globex Corporation (renamed) globex.com inactive\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "PATCH",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"document not found\"\n}",
                   "code": 404,
                   "cookie": [],
@@ -56433,6 +56830,79 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"NOT_FOUND\",\n  \"message\": \"document not found\"\n}",
                   "code": 404,
                   "cookie": [],
@@ -56999,6 +57469,80 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin or service role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but its roles claim includes neither admin nor service.\nThis is the write-through tier: peer CRM services call these two routes\nwith a service identity, so the gate admits either role.\n",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "DELETE",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "search",
+                        "documents",
+                        "by-entity",
+                        ":entity_id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -57164,7 +57708,7 @@
     },
     {
       "description": {
-        "content": "Cloud spend tracking service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. Provides CRUD operations on spend records,\naggregated spend summaries, billing sync pulls from GCP, Fly.io, GitHub,\nand AWS, plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nAll runtime endpoints have been offline since 2026-06-04, when the platform\ninfrastructure was decommissioned to zero. See ROADMAP.md in the repo root.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler.\nRequests without a valid token receive 401. As implemented on main as of\n2026-07-18 there is NO role gating: any valid JWT can call every route,\nand the roles claim is parsed but never enforced. The only 403 responses\nin this service are the automated-record guards on PATCH and DELETE\n(records whose source is not \"manual\" cannot be edited or deleted).\nNote: admin role gating is planned and arrives with the\nrefactor/adopt-axum-api-kit branch.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "Cloud spend tracking service for the InfraPortal platform. Rust (axum 0.8)\nwith PostgreSQL persistence. Provides CRUD operations on spend records,\naggregated spend summaries, billing sync pulls from GCP, Fly.io, GitHub,\nand AWS, plus health and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication and authorization: every /api/v1 route validates a bearer\nJWT in the handler and then requires the \"admin\" role, the same gate the\nsibling CRM services apply. A missing, malformed, or invalid token\nreceives 401; a valid token whose roles claim does not include admin\nreceives 403 with code FORBIDDEN and message \"admin role required\". The\nhealth and readiness probes are unauthenticated.\n\nPATCH and DELETE carry a SECOND, independent 403: the record-source\nguard, which refuses to edit or delete a record whose source is not\n\"manual\". Both 403s use code FORBIDDEN and are distinguished by their\nmessage; the role gate runs first, so an automated-record refusal is only\never reachable by an admin caller.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -57413,7 +57957,7 @@
           "name": "Health"
         },
         {
-          "description": "Spend record CRUD and aggregated summary. Requires a bearer JWT (no role gating on main as of 2026-07-18).",
+          "description": "Spend record CRUD and aggregated summary. Requires a bearer JWT whose roles claim includes admin.",
           "item": [
             {
               "event": [],
@@ -58107,6 +58651,132 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "Maximum number of rows to return. Defaults to 50. Values are\nclamped to the range 1 to 200 rather than rejected.\n",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "limit",
+                          "value": "50"
+                        },
+                        {
+                          "description": {
+                            "content": "Number of rows to skip. Defaults to 0.",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "offset",
+                          "value": "0"
+                        },
+                        {
+                          "description": {
+                            "content": "Filter by exact platform value. Known values are gcp, flyio,\nanthropic, github_copilot, github, and aws, but the filter accepts\nany string.\n",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "platform",
+                          "value": "gcp"
+                        },
+                        {
+                          "description": {
+                            "content": "Inclusive lower bound on the record date (YYYY-MM-DD).",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "date_from",
+                          "value": "2026-07-01"
+                        },
+                        {
+                          "description": {
+                            "content": "Inclusive upper bound on the record date (YYYY-MM-DD).",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "date_to",
+                          "value": "2026-07-31"
+                        },
+                        {
+                          "description": {
+                            "content": "Filter by exact source value. Known values are manual, bigquery,\nflyio_graphql, github_api, and aws_cost_explorer, but the filter\naccepts any string.\n",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "source",
+                          "value": "manual"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
@@ -59212,6 +59882,90 @@
                   "status": "Unauthorized"
                 },
                 {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"platform\": \"anthropic\",\n  \"date\": \"2026-07-01\",\n  \"amount_usd\": 25,\n  \"granularity\": \"monthly\",\n  \"service_label\": \"Claude API\",\n  \"notes\": \"July API credits top-up\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
                   "_postman_previewlanguage": "text",
                   "body": "Failed to deserialize the JSON body into the target type: missing field `platform` at line 1 column 2",
                   "code": 422,
@@ -59959,6 +60713,97 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        "summary"
+                      ],
+                      "query": [
+                        {
+                          "description": {
+                            "content": "Inclusive lower bound on the record date (YYYY-MM-DD).",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "date_from",
+                          "value": "2026-06-01"
+                        },
+                        {
+                          "description": {
+                            "content": "Inclusive upper bound on the record date (YYYY-MM-DD).",
+                            "type": "text/plain"
+                          },
+                          "disabled": false,
+                          "key": "date_to",
+                          "value": "2026-07-31"
+                        }
+                      ],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -60484,6 +61329,78 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "GET",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
@@ -61556,7 +62473,7 @@
                       "value": ""
                     }
                   ],
-                  "name": "The record's source is not \"manual\". Automated records (bigquery,\nflyio_graphql, github_api, aws_cost_explorer) cannot be edited.\nThis is a record-source guard, not a role check.\n",
+                  "name": "Two independent guards answer 403 here, both with code FORBIDDEN,\ntold apart by their message. The role gate runs first: \"admin role\nrequired\" when the roles claim does not include admin. Past it,\nthe record-source guard answers \"automated records cannot be\nedited\" when the record's source is not \"manual\" (bigquery,\nflyio_graphql, github_api, aws_cost_explorer).\n",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -62318,7 +63235,7 @@
                       "value": ""
                     }
                   ],
-                  "name": "The record's source is not \"manual\". Automated records (bigquery,\nflyio_graphql, github_api, aws_cost_explorer) cannot be deleted.\nThis is a record-source guard, not a role check.\n",
+                  "name": "Two independent guards answer 403 here, both with code FORBIDDEN,\ntold apart by their message. The role gate runs first: \"admin role\nrequired\" when the roles claim does not include admin. Past it,\nthe record-source guard answers \"automated records cannot be\ndeleted\" when the record's source is not \"manual\" (bigquery,\nflyio_graphql, github_api, aws_cost_explorer).\n",
                   "originalRequest": {
                     "body": {},
                     "header": [
@@ -62583,7 +63500,7 @@
           "name": "Spend"
         },
         {
-          "description": "Billing sync pulls from external platforms. Requires a bearer JWT (no role gating on main as of 2026-07-18).",
+          "description": "Billing sync pulls from external platforms. Requires a bearer JWT whose roles claim includes admin.",
           "item": [
             {
               "event": [],
@@ -62989,6 +63906,79 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        "sync",
+                        "gcp"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -63081,7 +64071,7 @@
                 "auth": null,
                 "body": {},
                 "description": {
-                  "content": "Queries the Fly.io GraphQL API for each organization's outstanding\ncreditBalance (Fly.io removed per-invoice history from the public\nAPI) and records a monthly snapshot dated the first of the current\nmonth with platform \"flyio\" and source \"flyio_graphql\". Organizations\nwith a non-positive balance are counted in records_skipped, as are\nduplicate month snapshots (ON CONFLICT DO NOTHING). Requires the\nFLYIO_API_TOKEN environment variable on the server. No request body.\nConfiguration, upstream, and per-row insert failures do NOT produce\nerror status codes: the handler always returns 200 with any failures\nlisted in the errors array. Write tier: 30 rps at the gateway.\n",
+                  "content": "Queries the Fly.io GraphQL API for each organization's outstanding\ncreditBalance (Fly.io removed per-invoice history from the public\nAPI) and records a monthly snapshot dated the first of the current\nmonth with platform \"flyio\" and source \"flyio_graphql\". Organizations\nwith a non-positive balance are counted in records_skipped. A later\nsync in the same month refreshes the existing row's amount in place\n(ON CONFLICT DO UPDATE) and is counted in records_skipped, not\nrecords_imported. Requires the\nFLYIO_API_TOKEN environment variable on the server. No request body.\nConfiguration, upstream, and per-row insert failures do NOT produce\nerror status codes: the handler always returns 200 with any failures\nlisted in the errors array. Write tier: 30 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -63475,6 +64465,79 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        "sync",
+                        "flyio"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -63567,7 +64630,7 @@
                 "auth": null,
                 "body": {},
                 "description": {
-                  "content": "Pulls GitHub Actions minutes and shared storage billing from the\nGitHub REST API and records monthly snapshots dated the first of the\ncurrent month with platform \"github\" and source \"github_api\". Paid\nActions minutes are priced at 0.008 USD per minute. Zero-spend\nresults and duplicate month snapshots are counted in records_skipped;\na 404 from the Actions billing endpoint (free-tier account) is\ntreated as zero spend. Storage endpoint failures are non-fatal and\nsilently ignored. Requires the GITHUB_BILLING_TOKEN and\nGITHUB_BILLING_USERNAME environment variables on the server. No\nrequest body. Configuration, upstream, and per-row insert failures do\nNOT produce error status codes: the handler always returns 200 with\nany failures listed in the errors array. Write tier: 30 rps at the\ngateway.\n",
+                  "content": "Pulls GitHub Actions minutes and shared storage billing from the\nGitHub REST API and records monthly snapshots dated the first of the\ncurrent month with platform \"github\" and source \"github_api\". Paid\nActions minutes are priced at 0.008 USD per minute. Zero-spend\nresults are counted in records_skipped, and so is a later sync in the\nsame month, which refreshes the existing row's amount in place\n(ON CONFLICT DO UPDATE) rather than importing a new row;\na 404 from the Actions billing endpoint (free-tier account) is\ntreated as zero spend. Storage endpoint failures are non-fatal and\nsilently ignored. Requires the GITHUB_BILLING_TOKEN and\nGITHUB_BILLING_USERNAME environment variables on the server. No\nrequest body. Configuration, upstream, and per-row insert failures do\nNOT produce error status codes: the handler always returns 200 with\nany failures listed in the errors array. Write tier: 30 rps at the\ngateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -63961,6 +65024,79 @@
                 },
                 {
                   "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        "sync",
+                        "github"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
+                },
+                {
+                  "_postman_previewlanguage": "json",
                   "body": "{\n  \"code\": \"RATE_LIMITED\",\n  \"message\": \"rate limit exceeded (30 req/s), retry after 1s\"\n}",
                   "code": 429,
                   "cookie": [],
@@ -64053,7 +65189,7 @@
                 "auth": null,
                 "body": {},
                 "description": {
-                  "content": "Pulls the last 30 days of AWS spend from Cost Explorer (SigV4-signed\nGetCostAndUsage, monthly granularity, grouped by service) and inserts\nmonthly records dated the first of each result month with platform\n\"aws\" and source \"aws_cost_explorer\". Zero or negative amounts are\nignored; duplicate rows are skipped via ON CONFLICT DO NOTHING and\ncounted in records_skipped. Requires the AWS_BILLING_ACCESS_KEY_ID\nand AWS_BILLING_SECRET_ACCESS_KEY environment variables on the\nserver. No request body. Configuration, upstream, and per-row insert\nfailures do NOT produce error status codes: the handler always\nreturns 200 with any failures listed in the errors array. Write tier:\n30 rps at the gateway.\n",
+                  "content": "Pulls the last 30 days of AWS spend from Cost Explorer (SigV4-signed\nGetCostAndUsage, monthly granularity, grouped by service) and inserts\nmonthly records dated the first of each result month with platform\n\"aws\" and source \"aws_cost_explorer\". Zero or negative amounts are\nignored. A month already recorded has its amount refreshed in place\n(ON CONFLICT DO UPDATE) and is counted in records_skipped, not\nrecords_imported. Requires the AWS_BILLING_ACCESS_KEY_ID\nand AWS_BILLING_SECRET_ACCESS_KEY environment variables on the\nserver. No request body. Configuration, upstream, and per-row insert\nfailures do NOT produce error status codes: the handler always\nreturns 200 with any failures listed in the errors array. Write tier:\n30 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -64444,6 +65580,79 @@
                     }
                   },
                   "status": "Unauthorized"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"FORBIDDEN\",\n  \"message\": \"admin role required\"\n}",
+                  "code": 403,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Limit",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Remaining",
+                      "value": ""
+                    },
+                    {
+                      "description": {
+                        "content": "",
+                        "type": "text/plain"
+                      },
+                      "disabled": false,
+                      "key": "X-RateLimit-Reset",
+                      "value": ""
+                    }
+                  ],
+                  "name": "Token is valid but the roles claim does not include admin.",
+                  "originalRequest": {
+                    "body": {},
+                    "header": [
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "spend",
+                        "sync",
+                        "aws"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Forbidden"
                 },
                 {
                   "_postman_previewlanguage": "json",
