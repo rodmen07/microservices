@@ -206,10 +206,12 @@ const collection = {
         "generated from the eleven per-service OpenAPI 3.0.3 specs by " +
         "postman/generate-collection.mjs. Do not edit by hand; edit the specs " +
         "and regenerate.\n\n" +
-        "All runtime endpoints have been offline since 2026-06-04 " +
-        "(infrastructure decommissioned to zero); the collection documents " +
-        "the API contract as implemented in code. Point {{baseUrl}} at a " +
-        "locally running stack (default http://localhost:8080, the local " +
+        "Runtime status is not asserted here: the eleven services are deployed " +
+        "on Google Cloud Run, and live per-service health is published on the " +
+        "platform status board at " +
+        "https://rodmen07.github.io/infraportal/#/status. This collection " +
+        "documents the API contract as implemented in code. Point {{baseUrl}} " +
+        "at a locally running stack (default http://localhost:8080, the local " +
         "go-gateway) and supply a dev JWT in {{token}}. See postman/README.md " +
         "and docs/API.md.",
       type: "text/plain",

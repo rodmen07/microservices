@@ -11,6 +11,7 @@ Ready-to-import Postman artifacts for the InfraPortal CRM platform API, generate
 | `infraportal.postman_collection.json` | Postman Collection v2.1. One folder per service (11 folders, 99 requests), collection-level bearer auth reading `{{token}}`, every request URL rooted at `{{baseUrl}}`. Generated; do not edit by hand. |
 | `infraportal.postman_environment.json` | Environment template: `baseUrl` (default `http://localhost:8080`, the local go-gateway) and `token` (empty, secret type). |
 | `generate-collection.mjs` | Regenerates the collection from the specs. |
+| `check-collection.mjs` | CI drift guard: asserts the committed collection still matches the specs. |
 
 ## Import
 
@@ -48,3 +49,24 @@ node postman/generate-collection.mjs
 Requires Node 18+ and network access on first run (it invokes the converter via a pinned `npx --yes -p openapi-to-postmanv2@4 openapi2postmanv2` per spec, then merges the results). The script fails loudly if any of the eleven `<service>-service/openapi.yaml` specs is missing, if a conversion fails, or if any request is not rooted at `{{baseUrl}}`.
 
 Output is deterministic: volatile converter ids are stripped, the converter's schema faker is pinned to a fixed-seed `Math.random` (its enum picks are otherwise random per run), and keys are serialized sorted, so rerunning over unchanged specs is byte-identical and the committed artifact stays diff-stable.
+
+## The CI gate
+
+**If you change a `<service>-service/openapi.yaml`, regenerate the collection in the same PR.** That is not a convention you have to remember: `.github/workflows/postman-ci.yml` is paths-scoped to `postman/**` and `**/openapi.yaml`, so a spec change gets a `Collection matches the specs` check run on its own PR, and a stale collection turns it red with the command to fix it.
+
+```bash
+node postman/check-collection.mjs
+```
+
+Hermetic — node builtins only, no `npm install`, no network, no converter — so it also runs locally in under a second. It reads the collection and all eleven specs on every run and asserts, in both directions:
+
+| Check | Catches |
+|-------|---------|
+| Folder set | a service whose spec exists with no folder in the collection, and vice versa |
+| Route set, per service | a route added, renamed or removed in a spec and not in the collection, and any request pointing at a route no spec declares |
+| Folder description freshness | a spec's prose edited without regenerating — the drift that had gone unnoticed for 23 days |
+| Retired runtime-status claims | a "the platform is offline / decommissioned" sentence reappearing in the collection or the generator; runtime status belongs on the [status board](https://rodmen07.github.io/infraportal/#/status), never in a contract document |
+
+It derives what it expects from the **spec text**, deliberately not by re-running the converter and diffing: a converter that consistently dropped a route would make the committed collection and a fresh regeneration agree with each other and both be wrong. The service list is glob-discovered, and the checker refuses to report a verdict if it finds fewer than eleven specs.
+
+The workflow is deliberately **not** a required status context: a paths-filtered workflow creates no check run on a PR that touches neither `postman/` nor a spec, and GitHub treats a required context that never reported as permanently unsatisfied.

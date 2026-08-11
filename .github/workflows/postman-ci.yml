@@ -1,0 +1,84 @@
+name: Postman CI
+
+# ─── Why this exists (v1.18 PR 4) ────────────────────────────────────────────
+#
+# postman/infraportal.postman_collection.json is a PUBLISHED artifact — anyone
+# can import it into Postman — and it is GENERATED from the eleven per-service
+# openapi.yaml specs. Until this workflow, nothing ever compared the two again.
+#
+# Measured 2026-08-11, before this change:
+#   - grep -rniE "postman" .github/workflows/  →  1 hit, rust.yml:77, and that
+#     hit is the DOCS_RE allowlist entry that makes postman/ changes skip the
+#     cargo jobs. Nothing validated the artifact; one line mentioned it in
+#     order to run less.
+#   - commits touching */openapi.yaml since the collection was generated
+#     (ca70282, PR #97): 4  —  #116, #133, #136, #137
+#   - of those, commits that regenerated the collection:                    0
+#
+# So the collection had been stale for 23 days, and its eleven folder
+# descriptions still told readers "All runtime endpoints have been offline
+# since 2026-06-04, when the platform infrastructure was decommissioned to
+# zero" — a claim PR #116 retired from the specs on 2026-07-25 and corrected
+# in 33 other places, this artifact not among them.
+#
+# The paths filter is the point. "Regenerate the collection when you change a
+# spec" was already the documented convention (postman/README.md) and was
+# followed 0 times out of 4, because the obliged author had no way to observe
+# they had triggered it. Scoping this gate to **/openapi.yaml turns it into a
+# red check on their own PR, naming the command to run.
+#
+# NOT a required status context, deliberately: a paths-filtered workflow
+# creates no check run on a PR that touches neither postman/ nor a spec, and
+# GitHub treats a required context that never reported as permanently
+# unsatisfied — the failure that stranded every docs-only PR until PR #115.
+# Branch protection stays ["Lint and test","Security audit","GitGuardian
+# Security Checks"]. Same decision, same reason, as sdk-ci.yml.
+
+on:
+  pull_request:
+    paths:
+      - "postman/**"
+      - "**/openapi.yaml"
+      # Self-exercising: a PR that edits this gate runs this gate. A gate that
+      # cannot run on the PR changing it is how a gate ships inert.
+      - ".github/workflows/postman-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "postman/**"
+      - "**/openapi.yaml"
+      - ".github/workflows/postman-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collection:
+    name: Collection matches the specs
+    runs-on: ubuntu-latest
+
+    # Least privilege: this job reads the tree and reports through its own
+    # conclusion. No check-run writes, no comments, no issues.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Node 24 = active LTS and the major this gate was verified against
+          # locally (v24.16.0). No `cache:` — the checker is hermetic and has
+          # no package.json or lockfile to key a cache on.
+          node-version: 24
+
+      # Hermetic by design: node builtins only, no npm install, no network, and
+      # it does NOT re-run the converter. Re-running the generator and diffing
+      # would be blind to a converter that consistently drops a route — both
+      # sides would then be wrong together, which is exactly how infraportal's
+      # byte-comparing check-spec-drift stayed green while all eleven snapshots
+      # carried a false claim (PR #116). This derives the expected route set and
+      # the expected prose from the SPEC TEXT instead. See the script header.
+      - name: Collection matches the eleven OpenAPI specs
+        run: node postman/check-collection.mjs
