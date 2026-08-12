@@ -185,12 +185,18 @@ paths:
 
         If account_id is provided it is verified against accounts-service
         (GET /api/v1/accounts/{id}, forwarding the caller's Authorization
-        header); likewise contact_id against contacts-service. A failed lookup
-        returns 422 with code INVALID_ACCOUNT or INVALID_CONTACT. When the
-        ACCOUNTS_SERVICE_URL or CONTACTS_SERVICE_URL environment variable is
-        unset the corresponding check is skipped entirely (fail-open); when it
-        is set but the HTTP call errors, the check fails closed and returns
-        422.
+        header); likewise contact_id against contacts-service. The peer's
+        answer decides the status, and the three failure modes are distinct:
+        a 404 from the peer means the id is wrong and returns 422 with code
+        INVALID_ACCOUNT or INVALID_CONTACT; a peer that cannot be reached at
+        all (connection refused, DNS or TLS failure, or the 5s client timeout
+        expiring) returns 503 UPSTREAM_UNAVAILABLE, which is retryable and
+        does not mean the id is wrong; any other non-2xx answer from the peer
+        (for example a 403 refusing the forwarded token) returns 502
+        UPSTREAM_REJECTED with the peer's own status in details.
+        When the ACCOUNTS_SERVICE_URL or CONTACTS_SERVICE_URL environment
+        variable is unset or blank the corresponding check is skipped entirely
+        (fail-open) and none of the three applies.
 
         On success the service also emits an activity.created platform event,
         indexes the activity in search-service (both fire-and-forget), and
@@ -254,8 +260,10 @@ paths:
             Two distinct producers share this status. Handler validation
             failures return the ApiError envelope (application/json):
             VALIDATION_ERROR for a blank activity_type or subject,
-            INVALID_ACCOUNT or INVALID_CONTACT when a referenced record fails
-            the cross-service existence check. Separately, a syntactically
+            INVALID_ACCOUNT or INVALID_CONTACT when the peer service answers
+            404 for a referenced record. A cross-service check that could not
+            reach the peer, or that got a non-404 error from it, is NOT this
+            status: see 502 and 503 below. Separately, a syntactically
             valid JSON body that fails deserialization (for example a missing
             required field) is rejected by the axum Json extractor before the
             handler runs, with a text/plain body.
@@ -304,6 +312,44 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "502":
+          description: |
+            A referenced account_id or contact_id could not be validated
+            because the peer service answered with a status that is neither
+            2xx nor 404 — most often a 403 refusing this service's forwarded
+            token, which is a platform misconfiguration rather than a client
+            error. details.upstream_status carries the peer's own status. The
+            submitted id may be perfectly valid; this is not a validation
+            failure and retrying the same body will not help until the peer is
+            fixed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                code: UPSTREAM_REJECTED
+                message: "accounts-service refused the validation request for account_id"
+                details:
+                  field: account_id
+                  upstream: accounts-service
+                  upstream_status: 403
+        "503":
+          description: |
+            A referenced account_id or contact_id could not be validated
+            because the peer service could not be reached at all (connection
+            refused, DNS or TLS failure, or the 5s client timeout expiring on
+            a cold instance). Retryable: nothing about the submitted body is
+            known to be wrong.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+              example:
+                code: UPSTREAM_UNAVAILABLE
+                message: "accounts-service could not be reached to validate account_id"
+                details:
+                  field: account_id
+                  upstream: accounts-service
   /api/v1/activities/{id}:
     parameters:
       - name: id

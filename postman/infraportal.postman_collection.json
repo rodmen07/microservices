@@ -5264,7 +5264,7 @@
                   "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"contact_id\": \"5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d\",\n  \"activity_type\": \"call\",\n  \"subject\": \"Quarterly renewal call with Globex\",\n  \"notes\": \"Discuss the 2026 renewal terms and the open support tickets.\",\n  \"due_at\": \"2026-07-25T15:00:00Z\"\n}"
                 },
                 "description": {
-                  "content": "Creates an activity owned by the caller (owner_id is taken from the\nJWT sub claim). activity_type and subject are trimmed and must be\nnon-empty; violations return 422 with the ApiError envelope. notes and\ndue_at are stored verbatim (not trimmed) and default to null.\ncompleted is always false at creation and cannot be set here.\n\nIf account_id is provided it is verified against accounts-service\n(GET /api/v1/accounts/{id}, forwarding the caller's Authorization\nheader); likewise contact_id against contacts-service. A failed lookup\nreturns 422 with code INVALID_ACCOUNT or INVALID_CONTACT. When the\nACCOUNTS_SERVICE_URL or CONTACTS_SERVICE_URL environment variable is\nunset the corresponding check is skipped entirely (fail-open); when it\nis set but the HTTP call errors, the check fails closed and returns\n422.\n\nOn success the service also emits an activity.created platform event,\nindexes the activity in search-service (both fire-and-forget), and\nemits an audit event. Write tier: 30 rps at the gateway.\n",
+                  "content": "Creates an activity owned by the caller (owner_id is taken from the\nJWT sub claim). activity_type and subject are trimmed and must be\nnon-empty; violations return 422 with the ApiError envelope. notes and\ndue_at are stored verbatim (not trimmed) and default to null.\ncompleted is always false at creation and cannot be set here.\n\nIf account_id is provided it is verified against accounts-service\n(GET /api/v1/accounts/{id}, forwarding the caller's Authorization\nheader); likewise contact_id against contacts-service. The peer's\nanswer decides the status, and the three failure modes are distinct:\na 404 from the peer means the id is wrong and returns 422 with code\nINVALID_ACCOUNT or INVALID_CONTACT; a peer that cannot be reached at\nall (connection refused, DNS or TLS failure, or the 5s client timeout\nexpiring) returns 503 UPSTREAM_UNAVAILABLE, which is retryable and\ndoes not mean the id is wrong; any other non-2xx answer from the peer\n(for example a 403 refusing the forwarded token) returns 502\nUPSTREAM_REJECTED with the peer's own status in details.\nWhen the ACCOUNTS_SERVICE_URL or CONTACTS_SERVICE_URL environment\nvariable is unset or blank the corresponding check is skipped entirely\n(fail-open) and none of the three applies.\n\nOn success the service also emits an activity.created platform event,\nindexes the activity in search-service (both fire-and-forget), and\nemits an audit event. Write tier: 30 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -6174,6 +6174,120 @@
                     }
                   },
                   "status": "Internal Server Error"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_REJECTED\",\n  \"message\": \"accounts-service refused the validation request for account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\",\n    \"upstream_status\": 403\n  }\n}",
+                  "code": 502,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "A referenced account_id or contact_id could not be validated\nbecause the peer service answered with a status that is neither\n2xx nor 404 — most often a 403 refusing this service's forwarded\ntoken, which is a platform misconfiguration rather than a client\nerror. details.upstream_status carries the peer's own status. The\nsubmitted id may be perfectly valid; this is not a validation\nfailure and retrying the same body will not help until the peer is\nfixed.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"contact_id\": \"5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d\",\n  \"activity_type\": \"call\",\n  \"subject\": \"Quarterly renewal call with Globex\",\n  \"notes\": \"Discuss the 2026 renewal terms and the open support tickets.\",\n  \"due_at\": \"2026-07-25T15:00:00Z\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "activities"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Gateway"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_UNAVAILABLE\",\n  \"message\": \"accounts-service could not be reached to validate account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\"\n  }\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "A referenced account_id or contact_id could not be validated\nbecause the peer service could not be reached at all (connection\nrefused, DNS or TLS failure, or the 5s client timeout expiring on\na cold instance). Retryable: nothing about the submitted body is\nknown to be wrong.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"contact_id\": \"5a7b9c1d-3e5f-4a2b-8c6d-1f3e5a7b9c1d\",\n  \"activity_type\": \"call\",\n  \"subject\": \"Quarterly renewal call with Globex\",\n  \"notes\": \"Discuss the 2026 renewal terms and the open support tickets.\",\n  \"due_at\": \"2026-07-25T15:00:00Z\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "activities"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             },
@@ -15281,7 +15395,7 @@
     },
     {
       "description": {
-        "content": "CRM contacts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on contact records plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role (require_admin). Requests\nwithout a valid token receive 401; valid tokens without the admin role\nreceive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. The handlers\ncontain owner-scoped query branches for non-admin callers, but they are\nunreachable on this branch because require_admin rejects non-admin tokens\nbefore any query runs.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nCross-service validation: when a request supplies a non-blank account_id,\nthe service verifies it with a GET to accounts-service\n(ACCOUNTS_SERVICE_URL). A non-2xx or failed call yields 422 with\n{\"code\": \"INVALID_ACCOUNT\", \"message\": \"account not found\"}. If\nACCOUNTS_SERVICE_URL is unset the check is skipped (fail-open for local\ndevelopment).\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
+        "content": "CRM contacts service for the InfraPortal platform. Rust (axum 0.8) with\nPostgreSQL persistence. Provides CRUD operations on contact records plus\nhealth and readiness probes.\n\nThis spec documents the API contract as implemented in code\n(src/lib/router.rs, src/lib/handlers/, src/lib/models.rs, src/lib/auth.rs).\nRuntime status is not asserted in this document: the deployed base URL is\nlisted under `servers` below, and live per-service health is published on\nthe platform status board at https://rodmen07.github.io/infraportal/#/status.\n\nAuthentication: every /api/v1 route validates a bearer JWT in the handler\nand additionally requires the \"admin\" role (require_admin). Requests\nwithout a valid token receive 401; valid tokens without the admin role\nreceive 403 with body\n{\"code\": \"FORBIDDEN\", \"message\": \"admin role required\"}. The handlers\ncontain owner-scoped query branches for non-admin callers, but they are\nunreachable on this branch because require_admin rejects non-admin tokens\nbefore any query runs.\n\nError envelope: service-generated errors use the ApiError shape\n{\"code\", \"message\", \"details?\"}. Framework-generated rejections (malformed\nJSON, JSON body that fails deserialization, invalid query string types) are\nproduced by axum before the handler runs and have text/plain bodies; they\nare documented per operation below.\n\nCross-service validation: when a request supplies a non-blank account_id,\nthe service verifies it with a GET to accounts-service\n(ACCOUNTS_SERVICE_URL). The peer's answer decides the status, and the\nthree failure modes are distinct: a 404 means the id is wrong and yields\n422 with {\"code\": \"INVALID_ACCOUNT\", \"message\": \"account not found\"}; a\npeer that cannot be reached at all yields 503 UPSTREAM_UNAVAILABLE, which\nis retryable and says nothing about the id; any other non-2xx answer (for\nexample a 403 refusing the forwarded token) yields 502 UPSTREAM_REJECTED\ncarrying the peer's own status in details.upstream_status. If\nACCOUNTS_SERVICE_URL is unset or blank the check is skipped (fail-open for\nlocal development) and none of the three applies.\n\nRate limiting: enforced at the platform gateway (go-gateway, shipped in\nv1.10), not in this service. The gateway sets X-RateLimit-Limit,\nX-RateLimit-Remaining, and X-RateLimit-Reset on every proxied response and\nadds Retry-After on 429. Platform tiers: auth routes 5 rps, write routes\n30 rps, read routes 60 rps, per client IP per route. Requests sent directly\nto the service bypass the gateway and carry none of these headers.\n\n\nContact Support:\n Name: InfraPortal platform",
         "type": "text/plain"
       },
       "item": [
@@ -16633,7 +16747,7 @@
                   "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"first_name\": \"Elena\",\n  \"last_name\": \"Rivera\",\n  \"email\": \"elena.rivera@globex.com\",\n  \"phone\": \"+1-555-0142\",\n  \"lifecycle_stage\": \"customer\"\n}"
                 },
                 "description": {
-                  "content": "Creates a contact owned by the caller (owner_id is taken from the JWT\nsub claim). first_name and last_name are trimmed and must be non-empty\nand at most 255 characters. lifecycle_stage is trimmed and defaults to\n\"lead\" when omitted; an unknown value is rejected with 400. A blank or\nwhitespace-only account_id, email, or phone is stored as null. A\nnon-blank account_id is verified against accounts-service; an unknown\naccount yields 422 INVALID_ACCOUNT (the check is skipped when\nACCOUNTS_SERVICE_URL is unset). email is limited to 255 characters\nafter trimming; this check runs after account validation, so an\ninvalid account_id wins over an overlong email. phone has no length\nlimit. On success the service also emits a contact.created platform\nevent, indexes the contact in search-service, and emits an audit event\n(all fire-and-forget). Write tier: 30 rps at the gateway.\n",
+                  "content": "Creates a contact owned by the caller (owner_id is taken from the JWT\nsub claim). first_name and last_name are trimmed and must be non-empty\nand at most 255 characters. lifecycle_stage is trimmed and defaults to\n\"lead\" when omitted; an unknown value is rejected with 400. A blank or\nwhitespace-only account_id, email, or phone is stored as null. A\nnon-blank account_id is verified against accounts-service; an unknown\naccount yields 422 INVALID_ACCOUNT, an unreachable accounts-service\nyields 503 UPSTREAM_UNAVAILABLE and any other non-2xx answer from it\nyields 502 UPSTREAM_REJECTED (the check is skipped when\nACCOUNTS_SERVICE_URL is unset). email is limited to 255 characters\nafter trimming; this check runs after account validation, so an\ninvalid account_id wins over an overlong email. phone has no length\nlimit. On success the service also emits a contact.created platform\nevent, indexes the contact in search-service, and emits an audit event\n(all fire-and-forget). Write tier: 30 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -17462,7 +17576,7 @@
                       "value": ""
                     }
                   ],
-                  "name": "Two distinct causes share this status. (1) The supplied account_id\ndoes not exist in accounts-service: handler-generated, ApiError\nenvelope with code INVALID_ACCOUNT. (2) The JSON body parsed but\nfailed deserialization into the request type, for example a missing\nrequired field or a wrong type: generated by the axum Json extractor\nbefore the handler runs, text/plain body.\n",
+                  "name": "Two distinct causes share this status. (1) accounts-service answered\n404 for the supplied account_id, so it does not exist:\nhandler-generated, ApiError envelope with code INVALID_ACCOUNT. A\nvalidation attempt that could not reach accounts-service, or that got\na non-404 error from it, is NOT this status — see 502 and 503. (2) The\nJSON body parsed but failed deserialization into the request type, for\nexample a missing required field or a wrong type: generated by the\naxum Json extractor before the handler runs, text/plain body.\n",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -17684,6 +17798,120 @@
                     }
                   },
                   "status": "Internal Server Error"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_REJECTED\",\n  \"message\": \"accounts-service refused the validation request for account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\",\n    \"upstream_status\": 403\n  }\n}",
+                  "code": 502,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "The supplied account_id could not be validated because\naccounts-service answered with a status that is neither 2xx nor 404 —\nmost often a 403 refusing this service's forwarded token, which is a\nplatform misconfiguration rather than a client error.\ndetails.upstream_status carries the peer's own status. The submitted\nid may be perfectly valid; retrying the same body will not help until\nthe peer is fixed.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"first_name\": \"Elena\",\n  \"last_name\": \"Rivera\",\n  \"email\": \"elena.rivera@globex.com\",\n  \"phone\": \"+1-555-0142\",\n  \"lifecycle_stage\": \"customer\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "contacts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Gateway"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_UNAVAILABLE\",\n  \"message\": \"accounts-service could not be reached to validate account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\"\n  }\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "The supplied account_id could not be validated because\naccounts-service could not be reached at all (connection refused, DNS\nor TLS failure, or the 5s client timeout expiring on a cold instance).\nRetryable: nothing about the submitted body is known to be wrong.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"account_id\": \"3f9a1c2e-8b4d-4e6f-9a2b-1c5d7e9f0a3b\",\n  \"first_name\": \"Elena\",\n  \"last_name\": \"Rivera\",\n  \"email\": \"elena.rivera@globex.com\",\n  \"phone\": \"+1-555-0142\",\n  \"lifecycle_stage\": \"customer\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "POST",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "contacts"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             },
@@ -18340,7 +18568,7 @@
                   "raw": "{\n  \"lifecycle_stage\": \"evangelist\"\n}"
                 },
                 "description": {
-                  "content": "Partial update. Omitted fields keep their stored values. The handler\nfetches the existing row before validating the body, so an unknown ID\nreturns 404 even when the body is invalid. A first_name or last_name\ngiven as empty or whitespace is rejected with 400. Sending account_id,\nemail, or phone as an empty or whitespace string clears the field to\nnull; a non-blank account_id is verified against accounts-service and\nan unknown account yields 422 INVALID_ACCOUNT (the check is skipped\nwhen ACCOUNTS_SERVICE_URL is unset). lifecycle_stage is trimmed and\nvalidated against the accepted set. updated_at is refreshed on\nsuccess. On success the service also emits a contact.updated platform\nevent, re-indexes the contact in search-service, and emits an audit\nevent (all fire-and-forget). Write tier: 30 rps at the gateway.\n",
+                  "content": "Partial update. Omitted fields keep their stored values. The handler\nfetches the existing row before validating the body, so an unknown ID\nreturns 404 even when the body is invalid. A first_name or last_name\ngiven as empty or whitespace is rejected with 400. Sending account_id,\nemail, or phone as an empty or whitespace string clears the field to\nnull; a non-blank account_id is verified against accounts-service and\nan unknown account yields 422 INVALID_ACCOUNT, an unreachable\naccounts-service yields 503 UPSTREAM_UNAVAILABLE and any other non-2xx\nanswer from it yields 502 UPSTREAM_REJECTED (the check is skipped\nwhen ACCOUNTS_SERVICE_URL is unset). lifecycle_stage is trimmed and\nvalidated against the accepted set. updated_at is refreshed on\nsuccess. On success the service also emits a contact.updated platform\nevent, re-indexes the contact in search-service, and emits an audit\nevent (all fire-and-forget). Write tier: 30 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -19277,7 +19505,7 @@
                       "value": ""
                     }
                   ],
-                  "name": "Two distinct causes share this status. (1) The supplied account_id\ndoes not exist in accounts-service: handler-generated, ApiError\nenvelope with code INVALID_ACCOUNT. (2) The JSON body parsed but\nfailed deserialization into the request type, for example a missing\nrequired field or a wrong type: generated by the axum Json extractor\nbefore the handler runs, text/plain body.\n",
+                  "name": "Two distinct causes share this status. (1) accounts-service answered\n404 for the supplied account_id, so it does not exist:\nhandler-generated, ApiError envelope with code INVALID_ACCOUNT. A\nvalidation attempt that could not reach accounts-service, or that got\na non-404 error from it, is NOT this status — see 502 and 503. (2) The\nJSON body parsed but failed deserialization into the request type, for\nexample a missing required field or a wrong type: generated by the\naxum Json extractor before the handler runs, text/plain body.\n",
                   "originalRequest": {
                     "body": {
                       "mode": "raw",
@@ -19502,6 +19730,122 @@
                     }
                   },
                   "status": "Internal Server Error"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_REJECTED\",\n  \"message\": \"accounts-service refused the validation request for account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\",\n    \"upstream_status\": 403\n  }\n}",
+                  "code": 502,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "The supplied account_id could not be validated because\naccounts-service answered with a status that is neither 2xx nor 404 —\nmost often a 403 refusing this service's forwarded token, which is a\nplatform misconfiguration rather than a client error.\ndetails.upstream_status carries the peer's own status. The submitted\nid may be perfectly valid; retrying the same body will not help until\nthe peer is fixed.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"lifecycle_stage\": \"evangelist\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "PATCH",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "contacts",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Bad Gateway"
+                },
+                {
+                  "_postman_previewlanguage": "json",
+                  "body": "{\n  \"code\": \"UPSTREAM_UNAVAILABLE\",\n  \"message\": \"accounts-service could not be reached to validate account_id\",\n  \"details\": {\n    \"field\": \"account_id\",\n    \"upstream\": \"accounts-service\"\n  }\n}",
+                  "code": 503,
+                  "cookie": [],
+                  "header": [
+                    {
+                      "key": "Content-Type",
+                      "value": "application/json"
+                    }
+                  ],
+                  "name": "The supplied account_id could not be validated because\naccounts-service could not be reached at all (connection refused, DNS\nor TLS failure, or the 5s client timeout expiring on a cold instance).\nRetryable: nothing about the submitted body is known to be wrong.\n",
+                  "originalRequest": {
+                    "body": {
+                      "mode": "raw",
+                      "options": {
+                        "raw": {
+                          "headerFamily": "json",
+                          "language": "json"
+                        }
+                      },
+                      "raw": "{\n  \"lifecycle_stage\": \"evangelist\"\n}"
+                    },
+                    "header": [
+                      {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                      },
+                      {
+                        "key": "Accept",
+                        "value": "application/json"
+                      },
+                      {
+                        "description": {
+                          "content": "Added as a part of security scheme: bearer",
+                          "type": "text/plain"
+                        },
+                        "key": "Authorization",
+                        "value": "Bearer <token>"
+                      }
+                    ],
+                    "method": "PATCH",
+                    "url": {
+                      "host": [
+                        "{{baseUrl}}"
+                      ],
+                      "path": [
+                        "api",
+                        "v1",
+                        "contacts",
+                        ":id"
+                      ],
+                      "query": [],
+                      "variable": []
+                    }
+                  },
+                  "status": "Service Unavailable"
                 }
               ]
             },

@@ -1,5 +1,3 @@
-use std::env;
-
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -16,6 +14,7 @@ use crate::{
         ApiError, Contact, CreateContactRequest, ListContactsQuery, ListContactsResponse,
         UpdateContactRequest, VALID_LIFECYCLE_STAGES,
     },
+    peer_check::{self, check_peer, PeerCheck},
     AppState,
 };
 
@@ -88,32 +87,39 @@ fn validate_lifecycle_stage(stage: &str) -> bool {
     VALID_LIFECYCLE_STAGES.contains(&stage)
 }
 
-/// Verify that an account_id exists in the accounts service.
-/// Returns Ok(true) if it exists, Ok(false) if not found, Err if the call fails.
-/// Silently passes if ACCOUNTS_SERVICE_URL is not configured (fail-open for local dev).
-async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header: &str) -> bool {
-    let base_url = match env::var("ACCOUNTS_SERVICE_URL") {
-        Ok(url) => url,
-        Err(_) => return true, // fail-open: no accounts service configured
-    };
+/// The peer this service validates `account_id` against, and the route it asks.
+///
+/// The doc comment that stood here claimed the check "Returns Ok(true) if it
+/// exists, Ok(false) if not found, Err if the call fails" — three states the
+/// `-> bool` signature underneath it could not express and the body never
+/// produced. `PeerCheck` is that comment made real; see
+/// `contacts-service/src/lib/peer_check.rs`.
+const ACCOUNTS_PEER: (&str, &str, &str) = (
+    "ACCOUNTS_SERVICE_URL",
+    "api/v1/accounts",
+    "accounts-service",
+);
 
-    let url = format!(
-        "{}/api/v1/accounts/{}",
-        base_url.trim_end_matches('/'),
-        account_id
-    );
-
-    match client
-        .get(&url)
-        .header("Authorization", auth_header)
-        .send()
-        .await
-    {
-        Ok(resp) => resp.status().is_success(),
-        Err(e) => {
-            tracing::warn!("account validation request failed: {e}");
-            false
-        }
+/// Applies the peer verdict for `account_id` to a request that supplied one.
+///
+/// `None` when the request may proceed. The match is exhaustive on purpose: a
+/// state added to `PeerCheck` must be decided here rather than falling into
+/// whichever arm a `bool` collapsed it to.
+async fn account_check_error(
+    client: &reqwest::Client,
+    account_id: &str,
+    auth_header: &str,
+) -> Option<Response> {
+    let (var, path, upstream) = ACCOUNTS_PEER;
+    match check_peer(client, var, path, account_id, auth_header).await {
+        PeerCheck::Exists | PeerCheck::NotConfigured => None,
+        PeerCheck::Absent => Some(error_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "INVALID_ACCOUNT",
+            "account not found",
+        )),
+        PeerCheck::Unreachable => Some(peer_check::unreachable("account_id", upstream)),
+        PeerCheck::Rejected(status) => Some(peer_check::rejected("account_id", upstream, status)),
     }
 }
 
@@ -371,12 +377,8 @@ pub async fn create_contact(
             .get("Authorization")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("");
-        if !account_exists(&state.http_client, aid, auth_header).await {
-            return error_response(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "INVALID_ACCOUNT",
-                "account not found",
-            );
+        if let Some(err) = account_check_error(&state.http_client, aid, auth_header).await {
+            return err;
         }
     }
 
@@ -627,12 +629,10 @@ pub async fn update_contact(
                     .get("Authorization")
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("");
-                if !account_exists(&state.http_client, trimmed, auth_header).await {
-                    return error_response(
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        "INVALID_ACCOUNT",
-                        "account not found",
-                    );
+                if let Some(err) =
+                    account_check_error(&state.http_client, trimmed, auth_header).await
+                {
+                    return err;
                 }
                 Some(Some(trimmed.to_string()))
             }
