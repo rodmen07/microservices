@@ -87,18 +87,20 @@ fn validate_lifecycle_stage(stage: &str) -> bool {
     VALID_LIFECYCLE_STAGES.contains(&stage)
 }
 
-/// The peer this service validates `account_id` against, and the route it asks.
+/// The route and peer name for the `account_id` referential-integrity check.
 ///
 /// The doc comment that stood here claimed the check "Returns Ok(true) if it
 /// exists, Ok(false) if not found, Err if the call fails" — three states the
 /// `-> bool` signature underneath it could not express and the body never
 /// produced. `PeerCheck` is that comment made real; see
 /// `contacts-service/src/lib/peer_check.rs`.
-const ACCOUNTS_PEER: (&str, &str, &str) = (
-    "ACCOUNTS_SERVICE_URL",
-    "api/v1/accounts",
-    "accounts-service",
-);
+///
+/// The peer's base URL is deliberately NOT here: it is read with a LITERAL
+/// `std::env::var("...")` below, because `accounts-service/tests/deploy_env_surface.rs`
+/// derives this service's environment surface by scanning `*/src/**` for
+/// exactly that shape, and a read hidden behind a constant or a parameter is
+/// invisible to it.
+const ACCOUNTS_PEER: (&str, &str) = ("api/v1/accounts", "accounts-service");
 
 /// Applies the peer verdict for `account_id` to a request that supplied one.
 ///
@@ -110,8 +112,9 @@ async fn account_check_error(
     account_id: &str,
     auth_header: &str,
 ) -> Option<Response> {
-    let (var, path, upstream) = ACCOUNTS_PEER;
-    match check_peer(client, var, path, account_id, auth_header).await {
+    let (path, upstream) = ACCOUNTS_PEER;
+    let base_url = std::env::var("ACCOUNTS_SERVICE_URL").ok();
+    match check_peer(client, base_url.as_deref(), path, account_id, auth_header).await {
         PeerCheck::Exists | PeerCheck::NotConfigured => None,
         PeerCheck::Absent => Some(error_response(
             StatusCode::UNPROCESSABLE_ENTITY,

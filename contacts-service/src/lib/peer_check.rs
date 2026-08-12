@@ -120,29 +120,40 @@ pub fn rejected(field: &str, upstream: &str, upstream_status: u16) -> Response {
         .into_response()
 }
 
-/// Ask `url_var`'s service whether `id` exists under `path`, forwarding the
+/// Ask the peer at `base_url` whether `id` exists under `path`, forwarding the
 /// caller's own `Authorization` header.
+///
+/// `None` — or a present-but-blank value — is [`PeerCheck::NotConfigured`]: the
+/// blank case matters because the formatted URL would otherwise be
+/// `http:///api/v1/...`, which fails in transport and would surface as a 503
+/// blaming a peer that was never named.
+///
+/// **`base_url` is passed in rather than read here, and that is load-bearing.**
+/// The first draft took the VARIABLE NAME and called `std::env::var(url_var)`
+/// inside this function. `accounts-service/tests/deploy_env_surface.rs` — the
+/// deploy-config drift guard v1.18 PR 1 shipped — derives every service's
+/// environment surface by scanning `*/src/**` for `env::var("LITERAL")`, and it
+/// refused to report a verdict at all: *"calls env::var with a non-literal
+/// argument … This guard cannot know which variable that reads."* It was right
+/// to: hiding the read behind a parameter removes `ACCOUNTS_SERVICE_URL` and
+/// `CONTACTS_SERVICE_URL` from the census that proves the deploy supplies them,
+/// which is precisely what v1.18 PR 2b is about to rely on. So the `env::var`
+/// stays literal, at the call site, where the guard can see it.
 ///
 /// `pub` so `tests/peer_check.rs` can drive the real function against a stub
 /// rather than grepping this file for the call (the `emit_audit` precedent from
 /// v1.18 PR 2a).
 pub async fn check_peer(
     client: &reqwest::Client,
-    url_var: &str,
+    base_url: Option<&str>,
     path: &str,
     id: &str,
     auth_header: &str,
 ) -> PeerCheck {
-    let base_url = match std::env::var(url_var) {
-        Ok(url) => url,
-        Err(_) => return PeerCheck::NotConfigured,
+    let base_url = match base_url {
+        Some(url) if !url.trim().is_empty() => url.trim(),
+        _ => return PeerCheck::NotConfigured,
     };
-    // A matrix entry present but empty is not a configured peer. Without this
-    // the formatted URL is `http:///api/v1/...`, which fails in transport and
-    // would now surface as a 503 blaming a peer that was never named.
-    if base_url.trim().is_empty() {
-        return PeerCheck::NotConfigured;
-    }
 
     let url = format!(
         "{}/{}/{}",
@@ -164,12 +175,12 @@ pub async fn check_peer(
             } else if status == reqwest::StatusCode::NOT_FOUND {
                 PeerCheck::Absent
             } else {
-                tracing::warn!("{url_var} validation returned {status}");
+                tracing::warn!("peer validation for {path} returned {status}");
                 PeerCheck::Rejected(status.as_u16())
             }
         }
         Err(e) => {
-            tracing::warn!("{url_var} validation request failed: {e}");
+            tracing::warn!("peer validation for {path} failed: {e}");
             PeerCheck::Unreachable
         }
     }

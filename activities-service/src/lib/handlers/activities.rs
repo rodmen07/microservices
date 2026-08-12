@@ -14,18 +14,17 @@ use crate::{
     peer_check::{self, check_peer, PeerCheck},
 };
 
-/// The peer this service validates `account_id` against, and the route it asks.
-const ACCOUNTS_PEER: (&str, &str, &str) = (
-    "ACCOUNTS_SERVICE_URL",
-    "api/v1/accounts",
-    "accounts-service",
-);
-/// The peer this service validates `contact_id` against, and the route it asks.
-const CONTACTS_PEER: (&str, &str, &str) = (
-    "CONTACTS_SERVICE_URL",
-    "api/v1/contacts",
-    "contacts-service",
-);
+/// The route and peer name for each referential-integrity check.
+///
+/// The peer's base URL is deliberately NOT here: it is read with a LITERAL
+/// `std::env::var("...")` at each call site below, because
+/// `accounts-service/tests/deploy_env_surface.rs` derives this service's
+/// environment surface by scanning `*/src/**` for exactly that shape. A read
+/// hidden behind a constant or a parameter is invisible to that census, which
+/// is the census v1.18 PR 2b relies on to prove the deploy supplies these two.
+const ACCOUNTS_PEER: (&str, &str) = ("api/v1/accounts", "accounts-service");
+/// See [`ACCOUNTS_PEER`]: same reasoning, for `contact_id`.
+const CONTACTS_PEER: (&str, &str) = ("api/v1/contacts", "contacts-service");
 
 // Fire-and-forget audit event emission; errors are silently ignored.
 // `pub` so `tests/audit_emit.rs` can drive the real function against a stub
@@ -208,10 +207,19 @@ pub async fn create_activity(
         .unwrap_or("");
 
     if let Some(ref account_id) = req.account_id {
-        let (var, path, upstream) = ACCOUNTS_PEER;
+        let (path, upstream) = ACCOUNTS_PEER;
+        let base_url = std::env::var("ACCOUNTS_SERVICE_URL").ok();
         // Exhaustive on purpose: a state added to PeerCheck must be decided
         // here rather than falling into whichever arm a `bool` collapsed it to.
-        match check_peer(&state.http_client, var, path, account_id, auth_header).await {
+        match check_peer(
+            &state.http_client,
+            base_url.as_deref(),
+            path,
+            account_id,
+            auth_header,
+        )
+        .await
+        {
             PeerCheck::Exists | PeerCheck::NotConfigured => {}
             PeerCheck::Absent => {
                 return Err((
@@ -236,8 +244,17 @@ pub async fn create_activity(
     }
 
     if let Some(ref contact_id) = req.contact_id {
-        let (var, path, upstream) = CONTACTS_PEER;
-        match check_peer(&state.http_client, var, path, contact_id, auth_header).await {
+        let (path, upstream) = CONTACTS_PEER;
+        let base_url = std::env::var("CONTACTS_SERVICE_URL").ok();
+        match check_peer(
+            &state.http_client,
+            base_url.as_deref(),
+            path,
+            contact_id,
+            auth_header,
+        )
+        .await
+        {
             PeerCheck::Exists | PeerCheck::NotConfigured => {}
             PeerCheck::Absent => {
                 return Err((

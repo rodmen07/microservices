@@ -23,11 +23,20 @@
 //! assertion over a vector would have gone red once for either and named
 //! neither.
 //!
+//! `check_peer` takes the base URL as a parameter rather than reading
+//! `env::var` itself, so no case here touches process-global state and they run
+//! in parallel safely. That signature is not a testing convenience: the first
+//! draft did read the variable inside the function, and
+//! `accounts-service/tests/deploy_env_surface.rs` refused to report a verdict
+//! on the whole workspace because the `env::var` argument was no longer a
+//! literal it could attribute to a service. What THIS suite therefore does not
+//! cover is the literal read at each call site; `deploy_env_surface` covers
+//! exactly that, and covers it for all eleven services at once.
+//!
 //! No database is involved — `check_peer` is a free function over a
 //! `reqwest::Client` — so the suite runs in milliseconds.
 
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use activities_service::peer_check::{self, check_peer, PeerCheck};
@@ -35,23 +44,9 @@ use axum::http::StatusCode;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-const VAR: &str = "ACCOUNTS_SERVICE_URL";
 const PATH: &str = "api/v1/accounts";
 const ID: &str = "acct-11111111-2222-3333-4444-555555555555";
 const AUTH_HEADER: &str = "Bearer header.payload.signature-activities";
-
-/// `std::env` is process-global while test cases in one binary run on several
-/// threads, so every case touching `ACCOUNTS_SERVICE_URL` serialises on this.
-///
-/// tokio's mutex, not `std`'s, and deliberately: the guard is held ACROSS
-/// `check_peer`'s await points, which is what `clippy::await_holding_lock`
-/// exists to reject for the std one.
-async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
-}
 
 /// Reads one request whole, answers with `status_line`, and returns the request
 /// line so a case can prove the checker asked the route it claims to ask.
@@ -87,24 +82,22 @@ async fn serve_one(listener: TcpListener, status_line: &'static str) -> String {
     head.lines().next().unwrap_or_default().to_string()
 }
 
-/// Points `ACCOUNTS_SERVICE_URL` at a stub answering `status_line`, runs the
-/// real checker once, and returns its verdict plus what the stub received.
-/// The caller must already hold `env_lock`.
+/// Points the checker at a stub answering `status_line`, runs it once, and
+/// returns its verdict plus what the stub received.
 ///
-/// The configured URL carries a TRAILING SLASH on purpose: `check_peer` builds
-/// its path with `trim_end_matches('/')`, so a base URL written either way must
+/// The base URL carries a TRAILING SLASH on purpose: `check_peer` builds its
+/// path with `trim_end_matches('/')`, so a deploy value written either way must
 /// produce the same single-slash route.
 async fn check_against(status_line: &'static str) -> (PeerCheck, String) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("could not bind the stub");
     let addr: SocketAddr = listener.local_addr().expect("no local addr");
-    std::env::set_var(VAR, format!("http://{addr}/"));
+    let base_url = format!("http://{addr}/");
 
     let server = tokio::spawn(serve_one(listener, status_line));
     let client = reqwest::Client::new();
-    let verdict = check_peer(&client, VAR, PATH, ID, AUTH_HEADER).await;
-    std::env::remove_var(VAR);
+    let verdict = check_peer(&client, Some(&base_url), PATH, ID, AUTH_HEADER).await;
 
     let request_line = tokio::time::timeout(Duration::from_secs(10), server)
         .await
@@ -125,7 +118,27 @@ fn closed_port() -> SocketAddr {
     addr
 }
 
-/// The `code` and `details` a `Response` carries, read back off the wire.
+/// Runs the checker with `base_url` and reports whether anything connected to a
+/// listener bound for the occasion.
+///
+/// Binding a real listener and proving nothing arrives is stronger than
+/// observing that an unknown address is not dialled: it excludes a checker that
+/// dials anyway and fails, which would also produce "no verdict of Exists".
+async fn nothing_connects_for(base_url: Option<&str>) -> (PeerCheck, bool) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("could not bind the stub");
+
+    let client = reqwest::Client::new();
+    let verdict = check_peer(&client, base_url, PATH, ID, AUTH_HEADER).await;
+
+    let quiet = tokio::time::timeout(Duration::from_millis(750), listener.accept())
+        .await
+        .is_err();
+    (verdict, quiet)
+}
+
+/// The body a `Response` carries, read back off the wire.
 async fn body_of(response: axum::response::Response) -> serde_json::Value {
     let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
         .await
@@ -139,7 +152,6 @@ async fn body_of(response: axum::response::Response) -> serde_json::Value {
 
 #[tokio::test]
 async fn a_two_hundred_from_the_peer_is_exists() {
-    let _guard = env_lock().await;
     let (verdict, request_line) = check_against("200 OK").await;
 
     assert_eq!(verdict, PeerCheck::Exists);
@@ -154,7 +166,6 @@ async fn a_two_hundred_from_the_peer_is_exists() {
 
 #[tokio::test]
 async fn a_four_oh_four_from_the_peer_is_absent() {
-    let _guard = env_lock().await;
     let (verdict, _) = check_against("404 Not Found").await;
 
     assert_eq!(
@@ -167,7 +178,6 @@ async fn a_four_oh_four_from_the_peer_is_absent() {
 
 #[tokio::test]
 async fn a_four_oh_three_from_the_peer_is_rejected_not_absent() {
-    let _guard = env_lock().await;
     let (verdict, _) = check_against("403 Forbidden").await;
 
     assert_eq!(
@@ -182,13 +192,11 @@ async fn a_four_oh_three_from_the_peer_is_rejected_not_absent() {
 
 #[tokio::test]
 async fn a_refused_connection_is_unreachable_not_absent() {
-    let _guard = env_lock().await;
     let addr = closed_port();
-    std::env::set_var(VAR, format!("http://{addr}"));
+    let base_url = format!("http://{addr}");
 
     let client = reqwest::Client::new();
-    let verdict = check_peer(&client, VAR, PATH, ID, AUTH_HEADER).await;
-    std::env::remove_var(VAR);
+    let verdict = check_peer(&client, Some(&base_url), PATH, ID, AUTH_HEADER).await;
 
     assert_eq!(
         verdict,
@@ -200,20 +208,8 @@ async fn a_refused_connection_is_unreachable_not_absent() {
 }
 
 #[tokio::test]
-async fn an_unset_variable_is_not_configured_and_contacts_nobody() {
-    let _guard = env_lock().await;
-    std::env::remove_var(VAR);
-
-    // Bind a listener and prove nothing arrives on it, rather than merely
-    // observing that an unknown address is not dialled: this excludes a URL
-    // captured once at start-up, which would still connect after the variable
-    // is removed.
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("could not bind the stub");
-
-    let client = reqwest::Client::new();
-    let verdict = check_peer(&client, VAR, PATH, ID, AUTH_HEADER).await;
+async fn no_configured_url_is_not_configured_and_contacts_nobody() {
+    let (verdict, quiet) = nothing_connects_for(None).await;
 
     assert_eq!(
         verdict,
@@ -222,28 +218,27 @@ async fn an_unset_variable_is_not_configured_and_contacts_nobody() {
          behaviour every deployed revision is running today"
     );
     assert!(
-        tokio::time::timeout(Duration::from_millis(750), listener.accept())
-            .await
-            .is_err(),
+        quiet,
         "an unconfigured peer must produce no connection at all"
     );
 }
 
 #[tokio::test]
-async fn a_blank_variable_is_not_configured() {
-    let _guard = env_lock().await;
-    std::env::set_var(VAR, "   ");
-    let client = reqwest::Client::new();
-    let verdict = check_peer(&client, VAR, PATH, ID, AUTH_HEADER).await;
-    std::env::remove_var(VAR);
+async fn a_blank_url_is_not_configured_and_contacts_nobody() {
+    let (verdict, quiet) = nothing_connects_for(Some("   ")).await;
 
     assert_eq!(
         verdict,
         PeerCheck::NotConfigured,
-        "a matrix entry present but empty is a different branch from the \
-         env::var miss above; without it the formatted URL is `http:///api/v1/...`, \
-         which fails in transport and would surface as a 503 blaming a peer that \
-         was never named"
+        "a matrix entry present but empty is a different branch from the absent \
+         one above; without it the formatted URL is `http:///api/v1/...`, which \
+         fails in transport and would surface as a 503 blaming a peer that was \
+         never named"
+    );
+    assert!(
+        quiet,
+        "a blank peer URL must produce no connection either — reaching transport \
+         at all is the defect this branch exists to prevent"
     );
 }
 
