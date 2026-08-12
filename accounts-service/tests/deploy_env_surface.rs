@@ -90,26 +90,26 @@ const PLATFORM_PROVIDED: &[(&str, &str)] = &[
 /// today; deleting the entry is what v1.18 PR 2 does when it wires the
 /// variable into the deploy matrix.
 ///
-/// Keep this sorted by name. Twelve entries today.
+/// Keep this sorted by name. Eleven entries today: `AUDIT_SERVICE_URL` left on
+/// 2026-08-12 when v1.18 PR 2a put it in the deploy matrix, which is exactly the
+/// event `no_allow_list_entry_is_dead` exists to force. Its retired text, kept
+/// here because the reason is the record of what the gap WAS: "the four CRM
+/// emitters (accounts, activities, contacts, opportunities) return from
+/// `emit_audit_event` at the first `env::var` miss, so no audit event has ever
+/// been emitted in production. Wired by v1.18 PR 2."
 const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     (
         "ACCOUNTS_SERVICE_URL",
         "activities/contacts verify a referenced account exists and FAIL OPEN when \
          unset, so the 400 'referenced account does not exist' their specs document \
          cannot fire; reporting folds accounts into a rollup and omits it when unset. \
-         Wired by v1.18 PR 2, which is a deliberate production behaviour change.",
+         Wired by v1.18 PR 2b, which is a deliberate production behaviour change.",
     ),
     (
         "ACTIVITIES_SERVICE_URL",
         "reporting-service reads it with `.unwrap_or_default()` for the cross-service \
          rollup, so an unset value silently drops that section rather than erroring. \
-         Wired by v1.18 PR 2.",
-    ),
-    (
-        "AUDIT_SERVICE_URL",
-        "the four CRM emitters (accounts, activities, contacts, opportunities) return \
-         from `emit_audit_event` at the first `env::var` miss, so no audit event has \
-         ever been emitted in production. Wired by v1.18 PR 2.",
+         Wired by v1.18 PR 2b.",
     ),
     (
         "AUTH_JWT_PUBLIC_KEY",
@@ -120,7 +120,7 @@ const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     (
         "CONTACTS_SERVICE_URL",
         "activities-service verifies a referenced contact exists and FAILS OPEN when \
-         unset; reporting-service folds contacts into a rollup. Wired by v1.18 PR 2.",
+         unset; reporting-service folds contacts into a rollup. Wired by v1.18 PR 2b.",
     ),
     (
         "DATABASE_REPLICA_URL",
@@ -143,13 +143,13 @@ const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     (
         "OPPORTUNITIES_SERVICE_URL",
         "reporting-service reads it with `.unwrap_or_default()` for the rollup, so an \
-         unset value drops that section silently. Wired by v1.18 PR 2.",
+         unset value drops that section silently. Wired by v1.18 PR 2b.",
     ),
     (
         "PIPELINE_INGEST_URL",
         "five services post entity-change events to an analytics pipeline that was \
          never rebuilt after the 2026-06-04 decommission; `Err(_) => return` means \
-         every emit is a no-op. Deliberately OUT of v1.18 PR 2 — there is no ingest \
+         every emit is a no-op. Deliberately OUT of v1.18 PR 2a and 2b — there is no ingest \
          endpoint to point it at, so wiring it needs a destination decision first.",
     ),
     (

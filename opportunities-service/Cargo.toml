@@ -37,3 +37,9 @@ tracing-opentelemetry.workspace = true
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+# tests/audit_emit.rs drives the real `emit_audit` against a 127.0.0.1 stub:
+# reqwest builds the client the handler holds, tokio net/time run the stub and
+# bound the "no request was made" wait, serde_json reads the captured body.
+reqwest.workspace = true
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }

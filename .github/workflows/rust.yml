@@ -382,6 +382,21 @@ jobs:
   #   Cloud SQL Client, Secret Manager Secret Accessor.
   # The WIF pool must trust this repo: attribute.repository=="rodmen07/microservices"
   #
+  # `extra_env` on the four CRM emitters carries AUDIT_SERVICE_URL (v1.18 PR 2a).
+  #   accounts/activities/contacts/opportunities each call `emit_audit`, which
+  #   returns at its first `env::var` miss, so before this entry existed no audit
+  #   event had ever been emitted in production while four openapi.yaml files said
+  #   in the present tense that create/update/delete "emits an audit event
+  #   (fire-and-forget)". The value is audit-service's own Cloud Run URL, read
+  #   from `gcloud run services list --region us-central1` on 2026-08-12; the
+  #   host is already public (it is served by the same deploy job's
+  #   `add-iam-policy-binding` step and named in the platform docs).
+  #   No secret is involved: `emit_audit` forwards the CALLER's own Authorization
+  #   header, and audit-service's POST accepts the admin role the CRM routes
+  #   already require. `accounts-service/tests/deploy_env_surface.rs` is what
+  #   forces this comment to stay honest — adding the name here made that guard's
+  #   AUDIT_SERVICE_URL allow-list entry dead, which is a hard failure.
+  #
   # Services are deployed in parallel after tests pass.
   deploy:
     name: Deploy ${{ matrix.service }}
@@ -399,14 +414,17 @@ jobs:
             dockerfile: accounts-service/Dockerfile
             cloud_run_service: accounts-service
             db_secret: DATABASE_URL_ACCOUNTS
+            extra_env: "AUDIT_SERVICE_URL=https://audit-service-5gcrg4oiza-uc.a.run.app"
           - service: contacts-service
             dockerfile: contacts-service/Dockerfile
             cloud_run_service: contacts-service
             db_secret: DATABASE_URL_CONTACTS
+            extra_env: "AUDIT_SERVICE_URL=https://audit-service-5gcrg4oiza-uc.a.run.app"
           - service: activities-service
             dockerfile: activities-service/Dockerfile
             cloud_run_service: activities-service
             db_secret: DATABASE_URL_ACTIVITIES
+            extra_env: "AUDIT_SERVICE_URL=https://audit-service-5gcrg4oiza-uc.a.run.app"
           - service: automation-service
             dockerfile: automation-service/Dockerfile
             cloud_run_service: automation-service
@@ -419,6 +437,7 @@ jobs:
             dockerfile: opportunities-service/Dockerfile
             cloud_run_service: opportunities-service
             db_secret: DATABASE_URL_OPPORTUNITIES
+            extra_env: "AUDIT_SERVICE_URL=https://audit-service-5gcrg4oiza-uc.a.run.app"
           - service: reporting-service
             dockerfile: reporting-service/Dockerfile
             cloud_run_service: reporting-service
