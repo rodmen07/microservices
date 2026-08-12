@@ -66,18 +66,36 @@ fn service_handler_dirs() -> BTreeMap<String, PathBuf> {
     found
 }
 
-/// Collects the string literals inside the balanced parentheses that begin at
-/// `open` (the index of the `(`), in source order. Escapes and the `'static`
-/// lifetimes that appear in these signatures are handled; the scan stops when
-/// the parenthesis it opened closes, so it never runs past a call site.
-fn string_literals_in_call(bytes: &[u8], open: usize) -> Vec<String> {
+/// Collects the string literals inside the balanced delimiter pair that begins
+/// at `open`, in source order, stopping the moment THAT delimiter closes.
+///
+/// The delimiter is read from the byte at `open` rather than assumed, and that
+/// is not defensive decoration — it is the fix for a defect this guard's own
+/// negative control found. The first draft tracked `(`/`)` only and was handed
+/// the `[` of `const VALID_ENTITY_TYPES: &[&str] = &[...]`, so it never saw a
+/// depth change until the `#[derive(...)]` two lines below: it silently
+/// returned SEVEN values — the four entity types PLUS the three actions of the
+/// next constant — and an emitter sending `entity_type: "created"` would have
+/// passed. Control D is what surfaced it, by printing the parsed set beside
+/// the rejected value instead of only the verdict.
+fn string_literals_in_delimited(bytes: &[u8], open: usize) -> Vec<String> {
+    let (opener, closer) = match bytes.get(open) {
+        Some(b'(') => (b'(', b')'),
+        Some(b'[') => (b'[', b']'),
+        other => panic!(
+            "CANNOT-READ: expected `(` or `[` at byte {open}, found {:?}. Fix this \
+             guard, do not delete it.",
+            other.map(|b| *b as char)
+        ),
+    };
+
     let mut literals = Vec::new();
     let mut depth = 0usize;
     let mut index = open;
     while index < bytes.len() {
         match bytes[index] {
-            b'(' => depth += 1,
-            b')' => {
+            b if b == opener => depth += 1,
+            b if b == closer => {
                 depth -= 1;
                 if depth == 0 {
                     return literals;
@@ -103,7 +121,7 @@ fn string_literals_in_call(bytes: &[u8], open: usize) -> Vec<String> {
         index += 1;
     }
     panic!(
-        "CANNOT-READ: an `emit_audit(` call site at byte {open} is never closed. \
+        "CANNOT-READ: the delimiter opened at byte {open} is never closed. \
          Fix this guard, do not delete it."
     );
 }
@@ -141,7 +159,7 @@ fn emissions() -> BTreeMap<String, Vec<(String, String)>> {
                     continue;
                 }
 
-                let literals = string_literals_in_call(bytes, open);
+                let literals = string_literals_in_delimited(bytes, open);
                 assert!(
                     literals.len() >= 2,
                     "CANNOT-READ: the `emit_audit(` call site at {} byte {at} yielded \
@@ -179,7 +197,7 @@ fn vocabulary(name: &str) -> BTreeSet<String> {
         )
     });
     let open = start + anchor.len() - 1;
-    let values: BTreeSet<String> = string_literals_in_call(source.as_bytes(), open)
+    let values: BTreeSet<String> = string_literals_in_delimited(source.as_bytes(), open)
         .into_iter()
         .map(|v| v.to_lowercase())
         .collect();
@@ -256,6 +274,31 @@ fn every_emitted_vocabulary_pair_is_accepted_by_audit_service() {
          because `emit_audit` ignores the response:\n  {}",
         rejected.len(),
         rejected.join("\n  ")
+    );
+}
+
+/// Regression pin for the defect control D found in this guard's first draft.
+///
+/// `VALID_ENTITY_TYPES` and `VALID_ACTIONS` are declared on consecutive lines,
+/// so a scanner that does not stop at the array's own closing delimiter reads
+/// straight through the first constant into the second and reports their UNION
+/// as the entity-type vocabulary — which silently admits `entity_type:
+/// "created"`. An overlap between the two parsed sets is that failure and
+/// nothing else: no entity type in this domain is also a lifecycle action.
+/// Asserting disjointness catches it without hand-copying either list, which
+/// would reintroduce exactly the drift this file exists to prevent.
+#[test]
+fn the_two_vocabularies_are_read_as_separate_sets() {
+    let entity_types = vocabulary("VALID_ENTITY_TYPES");
+    let actions = vocabulary("VALID_ACTIONS");
+
+    let overlap: Vec<&String> = entity_types.intersection(&actions).collect();
+    assert!(
+        overlap.is_empty(),
+        "the parsed vocabularies overlap on {overlap:?}, which means the array scan \
+         ran past one constant into the next: entity types read as \
+         {entity_types:?} and actions as {actions:?}. Fix the scan, not this \
+         assertion."
     );
 }
 
