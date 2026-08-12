@@ -1,5 +1,3 @@
-use std::env;
-
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -13,55 +11,20 @@ use crate::{
     app_state::AppState,
     auth::validate_authorization_header,
     models::{Activity, ApiError, CreateActivityRequest, UpdateActivityRequest},
+    peer_check::{self, check_peer, PeerCheck},
 };
 
-async fn account_exists(client: &reqwest::Client, account_id: &str, auth_header: &str) -> bool {
-    let base_url = match env::var("ACCOUNTS_SERVICE_URL") {
-        Ok(url) => url,
-        Err(_) => return true, // fail-open: no accounts service configured
-    };
-    let url = format!(
-        "{}/api/v1/accounts/{}",
-        base_url.trim_end_matches('/'),
-        account_id
-    );
-    match client
-        .get(&url)
-        .header("Authorization", auth_header)
-        .send()
-        .await
-    {
-        Ok(resp) => resp.status().is_success(),
-        Err(e) => {
-            tracing::warn!("account validation request failed: {e}");
-            false
-        }
-    }
-}
-
-async fn contact_exists(client: &reqwest::Client, contact_id: &str, auth_header: &str) -> bool {
-    let base_url = match env::var("CONTACTS_SERVICE_URL") {
-        Ok(url) => url,
-        Err(_) => return true, // fail-open: no contacts service configured
-    };
-    let url = format!(
-        "{}/api/v1/contacts/{}",
-        base_url.trim_end_matches('/'),
-        contact_id
-    );
-    match client
-        .get(&url)
-        .header("Authorization", auth_header)
-        .send()
-        .await
-    {
-        Ok(resp) => resp.status().is_success(),
-        Err(e) => {
-            tracing::warn!("contact validation request failed: {e}");
-            false
-        }
-    }
-}
+/// The route and peer name for each referential-integrity check.
+///
+/// The peer's base URL is deliberately NOT here: it is read with a LITERAL
+/// `std::env::var("...")` at each call site below, because
+/// `accounts-service/tests/deploy_env_surface.rs` derives this service's
+/// environment surface by scanning `*/src/**` for exactly that shape. A read
+/// hidden behind a constant or a parameter is invisible to that census, which
+/// is the census v1.18 PR 2b relies on to prove the deploy supplies these two.
+const ACCOUNTS_PEER: (&str, &str) = ("api/v1/accounts", "accounts-service");
+/// See [`ACCOUNTS_PEER`]: same reasoning, for `contact_id`.
+const CONTACTS_PEER: (&str, &str) = ("api/v1/contacts", "contacts-service");
 
 // Fire-and-forget audit event emission; errors are silently ignored.
 // `pub` so `tests/audit_emit.rs` can drive the real function against a stub
@@ -244,34 +207,74 @@ pub async fn create_activity(
         .unwrap_or("");
 
     if let Some(ref account_id) = req.account_id {
-        if !account_exists(&state.http_client, account_id, auth_header).await {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ApiError {
-                    code: "INVALID_ACCOUNT".to_string(),
-                    message: "referenced account does not exist".to_string(),
-                    details: Some(
-                        serde_json::json!({ "field": "account_id", "value": account_id }),
-                    ),
-                }),
-            )
-                .into_response());
+        let (path, upstream) = ACCOUNTS_PEER;
+        let base_url = std::env::var("ACCOUNTS_SERVICE_URL").ok();
+        // Exhaustive on purpose: a state added to PeerCheck must be decided
+        // here rather than falling into whichever arm a `bool` collapsed it to.
+        match check_peer(
+            &state.http_client,
+            base_url.as_deref(),
+            path,
+            account_id,
+            auth_header,
+        )
+        .await
+        {
+            PeerCheck::Exists | PeerCheck::NotConfigured => {}
+            PeerCheck::Absent => {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "INVALID_ACCOUNT".to_string(),
+                        message: "referenced account does not exist".to_string(),
+                        details: Some(
+                            serde_json::json!({ "field": "account_id", "value": account_id }),
+                        ),
+                    }),
+                )
+                    .into_response());
+            }
+            PeerCheck::Unreachable => {
+                return Err(peer_check::unreachable("account_id", upstream));
+            }
+            PeerCheck::Rejected(status) => {
+                return Err(peer_check::rejected("account_id", upstream, status));
+            }
         }
     }
 
     if let Some(ref contact_id) = req.contact_id {
-        if !contact_exists(&state.http_client, contact_id, auth_header).await {
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ApiError {
-                    code: "INVALID_CONTACT".to_string(),
-                    message: "referenced contact does not exist".to_string(),
-                    details: Some(
-                        serde_json::json!({ "field": "contact_id", "value": contact_id }),
-                    ),
-                }),
-            )
-                .into_response());
+        let (path, upstream) = CONTACTS_PEER;
+        let base_url = std::env::var("CONTACTS_SERVICE_URL").ok();
+        match check_peer(
+            &state.http_client,
+            base_url.as_deref(),
+            path,
+            contact_id,
+            auth_header,
+        )
+        .await
+        {
+            PeerCheck::Exists | PeerCheck::NotConfigured => {}
+            PeerCheck::Absent => {
+                return Err((
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(ApiError {
+                        code: "INVALID_CONTACT".to_string(),
+                        message: "referenced contact does not exist".to_string(),
+                        details: Some(
+                            serde_json::json!({ "field": "contact_id", "value": contact_id }),
+                        ),
+                    }),
+                )
+                    .into_response());
+            }
+            PeerCheck::Unreachable => {
+                return Err(peer_check::unreachable("contact_id", upstream));
+            }
+            PeerCheck::Rejected(status) => {
+                return Err(peer_check::rejected("contact_id", upstream, status));
+            }
         }
     }
 
