@@ -212,8 +212,7 @@ fn vocabulary(name: &str) -> BTreeSet<String> {
 }
 
 fn read_source(path: &Path) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|err| panic!("CANNOT-READ: {}: {err}", path.display()))
+    fs::read_to_string(path).unwrap_or_else(|err| panic!("CANNOT-READ: {}: {err}", path.display()))
 }
 
 fn corpus_checked_emissions() -> BTreeMap<String, Vec<(String, String)>> {

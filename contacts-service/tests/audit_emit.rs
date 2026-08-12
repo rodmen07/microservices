@@ -32,7 +32,7 @@
 
 use std::env;
 use std::net::SocketAddr;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use contacts_service::handlers::contacts::emit_audit;
@@ -57,11 +57,16 @@ const AUTH_HEADER: &str = "Bearer header.payload.signature-contacts";
 
 /// `std::env` is process-global while test cases in one binary run on several
 /// threads, so every case touching `AUDIT_SERVICE_URL` serialises on this.
-fn env_lock() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+///
+/// The mutex is tokio's, not `std`'s, and deliberately: the guard is held
+/// ACROSS the emitter's own await points — that is the whole point of it — and
+/// a `std::sync::MutexGuard` held across an await is what
+/// `clippy::await_holding_lock` exists to reject.
+async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .await
 }
 
 struct Captured {
@@ -222,12 +227,14 @@ async fn nothing_connects_within(grace: Duration) -> bool {
     )
     .await;
 
-    tokio::time::timeout(grace, listener.accept()).await.is_err()
+    tokio::time::timeout(grace, listener.accept())
+        .await
+        .is_err()
 }
 
 #[tokio::test]
 async fn posts_to_the_audit_events_route_of_the_configured_base_url() {
-    let _guard = env_lock();
+    let _guard = env_lock().await;
     let captured = emit_against_stub().await;
 
     assert_eq!(
@@ -240,7 +247,7 @@ async fn posts_to_the_audit_events_route_of_the_configured_base_url() {
 
 #[tokio::test]
 async fn forwards_the_callers_authorization_header_verbatim() {
-    let _guard = env_lock();
+    let _guard = env_lock().await;
     let captured = emit_against_stub().await;
 
     assert_eq!(
@@ -255,7 +262,7 @@ async fn forwards_the_callers_authorization_header_verbatim() {
 
 #[tokio::test]
 async fn sends_the_exact_body_audit_service_deserializes() {
-    let _guard = env_lock();
+    let _guard = env_lock().await;
     let captured = emit_against_stub().await;
 
     assert_eq!(
@@ -281,7 +288,7 @@ async fn sends_the_exact_body_audit_service_deserializes() {
 
 #[tokio::test]
 async fn emits_nothing_when_the_audit_service_url_is_unset() {
-    let _guard = env_lock();
+    let _guard = env_lock().await;
     env::remove_var(VAR);
 
     assert!(
@@ -294,7 +301,7 @@ async fn emits_nothing_when_the_audit_service_url_is_unset() {
 
 #[tokio::test]
 async fn emits_nothing_when_the_audit_service_url_is_blank() {
-    let _guard = env_lock();
+    let _guard = env_lock().await;
     env::set_var(VAR, "   ");
     let quiet = nothing_connects_within(Duration::from_millis(750)).await;
     env::remove_var(VAR);

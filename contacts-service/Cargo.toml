@@ -43,4 +43,4 @@ tower = { version = "0.5", features = ["util"] }
 # bound the "no request was made" wait, serde_json reads the captured body.
 reqwest.workspace = true
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "sync"] }
