@@ -17,8 +17,10 @@ use crate::{
     AppState,
 };
 
-// Fire-and-forget audit event emission; errors are silently ignored
-async fn emit_audit(
+// Fire-and-forget audit event emission; errors are silently ignored.
+// `pub` so `tests/audit_emit.rs` can drive the real function against a stub
+// instead of grepping this file for the call (v1.18 PR 2a).
+pub async fn emit_audit(
     client: &reqwest::Client,
     entity_type: &'static str,
     entity_id: &str,
