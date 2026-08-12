@@ -50,10 +50,24 @@ use std::path::{Path, PathBuf};
 
 /// Floors. Every one of these exists so that a parse which silently matched
 /// nothing REFUSES to report a verdict instead of reporting a clean one.
+///
+/// **They are calibrated to catch a BROKEN PARSER, never a changed config, and
+/// the difference is not cosmetic.** The corpus floors below sit at 11 because
+/// eleven services and eleven matrix entries are a structural property of this
+/// workspace: a twelfth is additive, and losing one is a shape change that
+/// `the_deploy_matrix_covers_every_workspace_service` reports by name. The
+/// SUPPLY floors deliberately sit at 1 instead of at today's counts (3 base
+/// env names, 2 base secrets), because a floor pinned to today's count turns
+/// an ordinary config regression into a CANNOT-READ refusal that blames the
+/// guard: deleting `AUTH_ISSUER=auth-service#` from `--set-env-vars` made this
+/// file's first draft answer "parsed only 2 names, fix this guard" on all
+/// three tests, when the true finding is that eleven services now read a
+/// variable nothing supplies. Refuse when the parse read NOTHING; report when
+/// it read something different.
 const MIN_SERVICES: usize = 11;
 const MIN_MATRIX_ENTRIES: usize = 11;
-const MIN_BASE_ENV_NAMES: usize = 3;
-const MIN_BASE_SECRET_NAMES: usize = 2;
+const MIN_BASE_ENV_NAMES: usize = 1;
+const MIN_BASE_SECRET_NAMES: usize = 1;
 
 /// Names the Cloud Run RUNTIME provides, so the deploy step is right not to
 /// set them and they are not part of the declared-versus-deployed delta.
@@ -544,10 +558,11 @@ fn deploy_supply() -> BTreeMap<String, BTreeSet<String>> {
     let base_env = names_in_list(&base_env_list, env_delimiter);
     assert!(
         base_env.len() >= MIN_BASE_ENV_NAMES,
-        "FATAL: parsed only {} base --set-env-vars names, expected at least \
-         {MIN_BASE_ENV_NAMES} — refusing to report a verdict on a supply set this \
-         small. Every service would look under-configured. Fix this guard, do not \
-         delete it.",
+        "FATAL: parsed {} names out of the deploy job's --set-env-vars argument, \
+         expected at least {MIN_BASE_ENV_NAMES} — the flag is present but this \
+         guard read nothing out of it, so the quoting or the `^delim^` prefix \
+         changed shape and every service would look under-configured. Fix this \
+         guard, do not delete it.",
         base_env.len()
     );
 
@@ -555,9 +570,10 @@ fn deploy_supply() -> BTreeMap<String, BTreeSet<String>> {
     let base_secrets = names_in_list(&strip_expressions(&base_secrets_raw), ',');
     assert!(
         base_secrets.len() >= MIN_BASE_SECRET_NAMES,
-        "FATAL: parsed only {} base --set-secrets names, expected at least \
-         {MIN_BASE_SECRET_NAMES} — refusing to report a verdict on a supply set \
-         this small. Fix this guard, do not delete it.",
+        "FATAL: parsed {} names out of the deploy job's --set-secrets argument, \
+         expected at least {MIN_BASE_SECRET_NAMES} — the flag is present but this \
+         guard read nothing out of it, so its quoting changed shape. Fix this \
+         guard, do not delete it.",
         base_secrets.len()
     );
 
