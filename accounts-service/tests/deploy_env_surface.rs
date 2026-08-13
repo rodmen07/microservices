@@ -100,16 +100,20 @@ const PLATFORM_PROVIDED: &[(&str, &str)] = &[
 const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     (
         "ACCOUNTS_SERVICE_URL",
-        "activities/contacts verify a referenced account exists and FAIL OPEN when \
-         unset, so the 400 'referenced account does not exist' their specs document \
-         cannot fire; reporting folds accounts into a rollup and omits it when unset. \
-         Wired by v1.18 PR 2b, which is a deliberate production behaviour change.",
+        "activities/contacts verify a referenced account exists and take \
+         PeerCheck::NotConfigured when unset, so the 422 INVALID_ACCOUNT their specs \
+         document cannot fire; reporting folds accounts into a dashboard rollup and \
+         takes PeerTotal::NotConfigured, reporting null. Wired by v1.18 PR 2b's \
+         remaining slice, which is a deliberate production behaviour change. \
+         (This reason said '400' until v1.18 PR 2b slice 2: the status is 422 at \
+         every call site and always was, and slice 1 replaced the bool those checks \
+         returned with a five-state verdict.)",
     ),
     (
         "ACTIVITIES_SERVICE_URL",
         "reporting-service reads it with `.unwrap_or_default()` for the cross-service \
-         rollup, so an unset value silently drops that section rather than erroring. \
-         Wired by v1.18 PR 2b.",
+         dashboard rollup; unset is PeerTotal::NotConfigured, so that one field is \
+         null and no request is made. Wired by v1.18 PR 2b's remaining slice.",
     ),
     (
         "AUTH_JWT_PUBLIC_KEY",
@@ -119,8 +123,10 @@ const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     ),
     (
         "CONTACTS_SERVICE_URL",
-        "activities-service verifies a referenced contact exists and FAILS OPEN when \
-         unset; reporting-service folds contacts into a rollup. Wired by v1.18 PR 2b.",
+        "activities-service verifies a referenced contact exists and takes \
+         PeerCheck::NotConfigured when unset; reporting-service folds contacts into a \
+         dashboard rollup and takes PeerTotal::NotConfigured. Wired by v1.18 PR 2b's \
+         remaining slice.",
     ),
     (
         "DATABASE_REPLICA_URL",
@@ -142,8 +148,9 @@ const ALLOWED_UNSUPPLIED: &[(&str, &str)] = &[
     ),
     (
         "OPPORTUNITIES_SERVICE_URL",
-        "reporting-service reads it with `.unwrap_or_default()` for the rollup, so an \
-         unset value drops that section silently. Wired by v1.18 PR 2b.",
+        "reporting-service reads it with `.unwrap_or_default()` for the dashboard \
+         rollup; unset is PeerTotal::NotConfigured, so that one field is null and no \
+         request is made. Wired by v1.18 PR 2b's remaining slice.",
     ),
     (
         "PIPELINE_INGEST_URL",

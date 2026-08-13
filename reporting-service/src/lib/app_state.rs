@@ -1,8 +1,18 @@
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
+use crate::peer_total::build_peer_client;
+
 #[derive(Clone)]
 pub struct AppState {
     pub(crate) pool: PgPool,
+    /// Shared client for the dashboard's sibling-service rollup.
+    ///
+    /// One per process rather than one per call: `fetch_service_total` built a
+    /// fresh `reqwest::Client::new()` on every fan-out (four per dashboard
+    /// request), which threw away connection pooling AND carried no timeout,
+    /// because `reqwest` sets none by default. `build_peer_client` pins
+    /// `peer_total::PEER_TIMEOUT`, matching what the CRM services already do.
+    pub(crate) http_client: reqwest::Client,
 }
 
 impl AppState {
@@ -14,7 +24,10 @@ impl AppState {
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            http_client: build_peer_client(),
+        })
     }
 
     /// Runs migrations against the primary (`write_url`), then opens the serving
@@ -37,6 +50,9 @@ impl AppState {
             .connect(read_url.unwrap_or(write_url))
             .await?;
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            http_client: build_peer_client(),
+        })
     }
 }

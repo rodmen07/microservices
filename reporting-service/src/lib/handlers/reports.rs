@@ -15,6 +15,7 @@ use crate::{
         ApiError, CreateReportRequest, DashboardSummary, DashboardView, ExportQuery, SavedReport,
         UpdateReportRequest,
     },
+    peer_total::{fetch_peer_total, PeerTotal},
 };
 
 // Builds a JSON error response with the given HTTP status, error code, and message
@@ -101,48 +102,36 @@ pub async fn get_dashboard_summary(
 }
 
 // Returns a rich dashboard view that can optionally be scoped to a specific user_id
-async fn fetch_service_total(
-    base_url: &str,
-    endpoint: &str,
-    auth_header: &str,
-    owner_id: Option<&str>,
-) -> Result<Option<i64>, Response> {
-    if base_url.is_empty() {
-        return Ok(None);
+/// Folds one sibling's rollup verdict into the aggregate.
+///
+/// Exhaustive on purpose, in one place rather than at each of the four call
+/// sites: a state added to [`PeerTotal`] must be decided here — and given a log
+/// line — instead of silently joining the `null` set the old
+/// `Result<Option<i64>, _>` collapsed three of them into.
+///
+/// Every non-`Total` state degrades exactly ONE field. That is the change:
+/// `Unreachable` and a non-JSON body used to abort the whole request with a
+/// 500, discarding the local report count, the metric list and the siblings
+/// that answered, because one of four Cloud Run services was cold.
+fn fold_rollup(field: &str, verdict: PeerTotal) -> Option<i64> {
+    match verdict {
+        PeerTotal::Total(total) => Some(total),
+        // The state every deployed revision takes today: nothing was asked, so
+        // there is nothing to warn about.
+        PeerTotal::NotConfigured => None,
+        PeerTotal::NoTotal => {
+            tracing::warn!("dashboard: {field} answered without a usable total; reporting null");
+            None
+        }
+        PeerTotal::Unreachable => {
+            tracing::warn!("dashboard: {field} could not be reached; reporting null");
+            None
+        }
+        PeerTotal::Rejected(status) => {
+            tracing::warn!("dashboard: {field} answered {status}; reporting null");
+            None
+        }
     }
-
-    let mut url = format!("{}/{}?limit=1", base_url.trim_end_matches('/'), endpoint);
-    if let Some(owner) = owner_id {
-        url.push_str(&format!("&owner_id={}", owner));
-    }
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(&url)
-        .header("Authorization", auth_header)
-        .send()
-        .await
-        .map_err(|_| {
-            error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "HTTP_ERROR",
-                "service request failed",
-            )
-        })?;
-
-    if !resp.status().is_success() {
-        return Ok(None);
-    }
-
-    let body: serde_json::Value = resp.json().await.map_err(|_| {
-        error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "HTTP_ERROR",
-            "invalid service response",
-        )
-    })?;
-
-    Ok(body.get("total").and_then(|v| v.as_i64()))
 }
 
 pub async fn get_dashboard(
@@ -217,24 +206,51 @@ pub async fn get_dashboard(
         Some(claims.sub.as_str())
     };
 
-    let accounts =
-        fetch_service_total(&accounts_url, "api/v1/accounts", auth_header, owner_filter).await?;
-    let contacts =
-        fetch_service_total(&contacts_url, "api/v1/contacts", auth_header, owner_filter).await?;
-    let opportunities = fetch_service_total(
-        &opportunities_url,
-        "api/v1/opportunities",
-        auth_header,
-        owner_filter,
-    )
-    .await?;
-    let activities = fetch_service_total(
-        &activities_url,
-        "api/v1/activities",
-        auth_header,
-        owner_filter,
-    )
-    .await?;
+    let client = &state.http_client;
+    let accounts = fold_rollup(
+        "accounts-service",
+        fetch_peer_total(
+            client,
+            &accounts_url,
+            "api/v1/accounts",
+            auth_header,
+            owner_filter,
+        )
+        .await,
+    );
+    let contacts = fold_rollup(
+        "contacts-service",
+        fetch_peer_total(
+            client,
+            &contacts_url,
+            "api/v1/contacts",
+            auth_header,
+            owner_filter,
+        )
+        .await,
+    );
+    let opportunities = fold_rollup(
+        "opportunities-service",
+        fetch_peer_total(
+            client,
+            &opportunities_url,
+            "api/v1/opportunities",
+            auth_header,
+            owner_filter,
+        )
+        .await,
+    );
+    let activities = fold_rollup(
+        "activities-service",
+        fetch_peer_total(
+            client,
+            &activities_url,
+            "api/v1/activities",
+            auth_header,
+            owner_filter,
+        )
+        .await,
+    );
 
     tracing::debug!(actor = %claims.sub, ?target_user, "get_dashboard ok");
     Ok(Json(DashboardView {

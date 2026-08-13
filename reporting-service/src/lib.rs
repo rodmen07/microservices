@@ -6,6 +6,8 @@ pub mod auth;
 pub mod handlers;
 #[path = "lib/models.rs"]
 pub mod models;
+#[path = "lib/peer_total.rs"]
+pub mod peer_total;
 #[path = "lib/router.rs"]
 pub mod router;
 
