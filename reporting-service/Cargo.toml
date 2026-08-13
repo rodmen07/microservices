@@ -38,3 +38,8 @@ tracing-opentelemetry.workspace = true
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
+# tests/peer_total.rs drives the real `fetch_peer_total` against a 127.0.0.1
+# stub: tokio net/time run the stub and bound the "no request was made" wait,
+# serde_json reads the captured body. (Same shape as
+# activities-service/tests/peer_check.rs.)
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time"] }

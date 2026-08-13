@@ -33,11 +33,18 @@ export interface paths {
      * Get the cross-service dashboard view
      * @description Aggregates the local reports count and distinct metric list with entity
      * totals fetched from sibling services (accounts, contacts,
-     * opportunities, activities). Each sibling total is null when the
-     * corresponding *_SERVICE_URL environment variable is unset or empty,
-     * when the downstream call returns a non-2xx status, or when the
-     * downstream body carries no numeric "total" field. The caller's Authorization header is
+     * opportunities, activities). The caller's Authorization header is
      * forwarded verbatim to the sibling services.
+     *
+     * A sibling that does not answer with a usable total degrades EXACTLY ITS
+     * OWN field to null; it never fails the view. Each sibling total is null
+     * when the corresponding *_SERVICE_URL environment variable is unset or
+     * empty (no request is made at all), when the downstream call returns any
+     * non-2xx status, when the downstream body carries no numeric "total"
+     * field or is not JSON, or when the downstream request could not be sent
+     * or did not answer within 5 seconds. So a null means "no usable total
+     * from that service" and nothing more specific; the reason is recorded in
+     * this service's logs, not in the response.
      *
      * When user_id is given, the reports count and the owner_id filter sent
      * to sibling services are scoped to that user; core_metrics is never
@@ -265,7 +272,7 @@ export interface components {
     DashboardView: {
       /**
        * Format: int64
-       * @description Account total from accounts-service. Null when ACCOUNTS_SERVICE_URL is unset or empty, the call returned non-2xx, or the body had no numeric total.
+       * @description Account total from accounts-service. Null when ACCOUNTS_SERVICE_URL is unset or empty, the call returned non-2xx, the body had no numeric total or was not JSON, or the call could not be sent or timed out. A null never fails the view and does not distinguish these causes.
        * @example 42
        */
       accounts: number | null;
@@ -506,11 +513,18 @@ export interface operations {
    * Get the cross-service dashboard view
    * @description Aggregates the local reports count and distinct metric list with entity
    * totals fetched from sibling services (accounts, contacts,
-   * opportunities, activities). Each sibling total is null when the
-   * corresponding *_SERVICE_URL environment variable is unset or empty,
-   * when the downstream call returns a non-2xx status, or when the
-   * downstream body carries no numeric "total" field. The caller's Authorization header is
+   * opportunities, activities). The caller's Authorization header is
    * forwarded verbatim to the sibling services.
+   *
+   * A sibling that does not answer with a usable total degrades EXACTLY ITS
+   * OWN field to null; it never fails the view. Each sibling total is null
+   * when the corresponding *_SERVICE_URL environment variable is unset or
+   * empty (no request is made at all), when the downstream call returns any
+   * non-2xx status, when the downstream body carries no numeric "total"
+   * field or is not JSON, or when the downstream request could not be sent
+   * or did not answer within 5 seconds. So a null means "no usable total
+   * from that service" and nothing more specific; the reason is recorded in
+   * this service's logs, not in the response.
    *
    * When user_id is given, the reports count and the owner_id filter sent
    * to sibling services are scoped to that user; core_metrics is never
@@ -548,12 +562,7 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       429: components["responses"]["RateLimited"];
-      /**
-       * @description A local database query failed (DB_ERROR), a sibling service
-       * request could not be sent (HTTP_ERROR "service request failed"),
-       * or a sibling service replied 2xx with a body that was not valid
-       * JSON (HTTP_ERROR "invalid service response").
-       */
+      /** @description Local database query failed (DB_ERROR). No sibling-service outcome reaches this response. */
       500: {
         content: {
           "application/json": components["schemas"]["ApiError"];

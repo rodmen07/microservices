@@ -46507,7 +46507,7 @@
                 "auth": null,
                 "body": {},
                 "description": {
-                  "content": "Aggregates the local reports count and distinct metric list with entity\ntotals fetched from sibling services (accounts, contacts,\nopportunities, activities). Each sibling total is null when the\ncorresponding *_SERVICE_URL environment variable is unset or empty,\nwhen the downstream call returns a non-2xx status, or when the\ndownstream body carries no numeric \"total\" field. The caller's Authorization header is\nforwarded verbatim to the sibling services.\n\nWhen user_id is given, the reports count and the owner_id filter sent\nto sibling services are scoped to that user; core_metrics is never\nscoped. Query parameters are read as free-form strings, so there is no\ntyped query rejection on this route; unknown parameters are ignored.\n\nstage_distribution and recent_activities are reserved fields that the\nhandler hardcodes to null on this branch. Requires the admin role.\nRead tier: 60 rps at the gateway.\n",
+                  "content": "Aggregates the local reports count and distinct metric list with entity\ntotals fetched from sibling services (accounts, contacts,\nopportunities, activities). The caller's Authorization header is\nforwarded verbatim to the sibling services.\n\nA sibling that does not answer with a usable total degrades EXACTLY ITS\nOWN field to null; it never fails the view. Each sibling total is null\nwhen the corresponding *_SERVICE_URL environment variable is unset or\nempty (no request is made at all), when the downstream call returns any\nnon-2xx status, when the downstream body carries no numeric \"total\"\nfield or is not JSON, or when the downstream request could not be sent\nor did not answer within 5 seconds. So a null means \"no usable total\nfrom that service\" and nothing more specific; the reason is recorded in\nthis service's logs, not in the response.\n\nWhen user_id is given, the reports count and the owner_id filter sent\nto sibling services are scoped to that user; core_metrics is never\nscoped. Query parameters are read as free-form strings, so there is no\ntyped query rejection on this route; unknown parameters are ignored.\n\nstage_distribution and recent_activities are reserved fields that the\nhandler hardcodes to null on this branch. Requires the admin role.\nRead tier: 60 rps at the gateway.\n",
                   "type": "text/plain"
                 },
                 "header": [
@@ -47048,115 +47048,7 @@
                       "value": "application/json"
                     }
                   ],
-                  "name": "Local database query failed",
-                  "originalRequest": {
-                    "body": {},
-                    "header": [
-                      {
-                        "key": "Accept",
-                        "value": "application/json"
-                      },
-                      {
-                        "description": {
-                          "content": "Added as a part of security scheme: bearer",
-                          "type": "text/plain"
-                        },
-                        "key": "Authorization",
-                        "value": "Bearer <token>"
-                      }
-                    ],
-                    "method": "GET",
-                    "url": {
-                      "host": [
-                        "{{baseUrl}}"
-                      ],
-                      "path": [
-                        "api",
-                        "v1",
-                        "dashboard"
-                      ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "Scope the reports count and the downstream owner_id filters to\nthis user ID. When omitted, counts are platform-wide.\n",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "user_id",
-                          "value": "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
-                        }
-                      ],
-                      "variable": []
-                    }
-                  },
-                  "status": "Internal Server Error"
-                },
-                {
-                  "_postman_previewlanguage": "json",
-                  "body": "{\n  \"code\": \"HTTP_ERROR\",\n  \"message\": \"service request failed\"\n}",
-                  "code": 500,
-                  "cookie": [],
-                  "header": [
-                    {
-                      "key": "Content-Type",
-                      "value": "application/json"
-                    }
-                  ],
-                  "name": "Sibling service request could not be sent",
-                  "originalRequest": {
-                    "body": {},
-                    "header": [
-                      {
-                        "key": "Accept",
-                        "value": "application/json"
-                      },
-                      {
-                        "description": {
-                          "content": "Added as a part of security scheme: bearer",
-                          "type": "text/plain"
-                        },
-                        "key": "Authorization",
-                        "value": "Bearer <token>"
-                      }
-                    ],
-                    "method": "GET",
-                    "url": {
-                      "host": [
-                        "{{baseUrl}}"
-                      ],
-                      "path": [
-                        "api",
-                        "v1",
-                        "dashboard"
-                      ],
-                      "query": [
-                        {
-                          "description": {
-                            "content": "Scope the reports count and the downstream owner_id filters to\nthis user ID. When omitted, counts are platform-wide.\n",
-                            "type": "text/plain"
-                          },
-                          "disabled": false,
-                          "key": "user_id",
-                          "value": "7d4e2f10-9c8b-4a5d-b6e3-2f1a0c9d8e7b"
-                        }
-                      ],
-                      "variable": []
-                    }
-                  },
-                  "status": "Internal Server Error"
-                },
-                {
-                  "_postman_previewlanguage": "json",
-                  "body": "{\n  \"code\": \"HTTP_ERROR\",\n  \"message\": \"invalid service response\"\n}",
-                  "code": 500,
-                  "cookie": [],
-                  "header": [
-                    {
-                      "key": "Content-Type",
-                      "value": "application/json"
-                    }
-                  ],
-                  "name": "Sibling service returned a non-JSON body",
+                  "name": "Local database query failed (DB_ERROR). No sibling-service outcome reaches this response.",
                   "originalRequest": {
                     "body": {},
                     "header": [
