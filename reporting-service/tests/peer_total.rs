@@ -339,30 +339,31 @@ async fn only_total_contributes_a_number_and_nothing_aborts_the_view() {
 }
 
 // ---------------------------------------------------------------------------
-// Characterisation of a filed-not-fixed defect (L-052)
+// The owner filter cannot smuggle extra parameters (DASHBOARD-OWNER-UNENCODED-1)
 // ---------------------------------------------------------------------------
 
-/// Pins TODAY'S wrong behaviour for `DASHBOARD-OWNER-UNENCODED-1`.
+/// The regression pin for `DASHBOARD-OWNER-UNENCODED-1`, replacing the
+/// `known_gap_` characterisation test that pinned the unencoded behaviour
+/// until the fix landed (its GAP-CLOSED red was observed on this tree, quoted
+/// in the closing PR, and it was deleted per its own instruction).
 ///
-/// `owner_id` is interpolated into the peer URL with no percent-encoding, and
-/// `?user_id=` is admin-controlled on this route, so an admin can inject extra
-/// query parameters into an internal service call. It is latent while the four
-/// `*_SERVICE_URL` variables are unset and goes live with v1.18 PR 2b's
-/// remaining slice, which is why it is filed with a close condition rather than
-/// folded into this diff.
-///
-/// **Fixing the bug MUST redden this test, and that red is the signal to close
-/// the backlog entry and delete this test rather than adjust it.**
+/// `owner_id` is admin-controlled on this route (`?user_id=` on
+/// `GET /api/v1/dashboard`), so a value carrying query metacharacters must
+/// reach the peer as ONE percent-encoded `owner_id` parameter — under the
+/// unencoded interpolation this exact value smuggled a second `limit` into
+/// the internal peer call, which is what the request line asserted here can
+/// no longer contain.
 #[tokio::test]
-async fn known_gap_owner_id_is_interpolated_without_percent_encoding() {
+async fn a_hostile_owner_id_reaches_the_peer_as_one_encoded_parameter() {
     let (verdict, request_line) =
         fetch_against("200 OK", r#"{"total":1}"#, Some("u1&limit=999")).await;
 
     assert_eq!(verdict, PeerTotal::Total(1));
     assert_eq!(
         request_line,
-        format!("GET /{ENDPOINT}?limit=1&owner_id=u1&limit=999 HTTP/1.1"),
-        "GAP-CLOSED: owner_id now reaches the peer encoded. DASHBOARD-OWNER-UNENCODED-1 \
-         is fixed — close the backlog entry and DELETE this characterisation test."
+        format!("GET /{ENDPOINT}?limit=1&owner_id=u1%26limit%3D999 HTTP/1.1"),
+        "owner_id must be percent-encoded into the peer URL as a query pair; an \
+         unencoded interpolation lets an admin-controlled `?user_id=` inject \
+         additional query parameters into all four internal peer calls"
     );
 }

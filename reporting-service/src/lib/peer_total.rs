@@ -177,19 +177,23 @@ pub async fn fetch_peer_total(
         return PeerTotal::NotConfigured;
     }
 
-    // Moved verbatim from the `fetch_service_total` this replaces, including
-    // the un-encoded `owner_id` interpolation. That interpolation is a real
-    // gap once the URLs are wired (an admin controls `?user_id=`), and it is
-    // filed as DASHBOARD-OWNER-UNENCODED-1 with a `known_gap_` test pinning it
-    // rather than fixed here: rewriting the URL builder and moving the failure
-    // states in one diff is two changes wearing one review.
-    let mut url = format!("{}/{}?limit=1", base_url.trim_end_matches('/'), endpoint);
+    // `owner_id` is admin-controlled on this route (it is `?user_id=` on
+    // `GET /api/v1/dashboard`), so it is handed to reqwest as a query PAIR and
+    // percent-encoded, never interpolated into the URL string. The unencoded
+    // `push_str(&format!("&owner_id={owner}"))` this replaces let an admin
+    // inject extra query parameters into all four internal peer calls
+    // (DASHBOARD-OWNER-UNENCODED-1, settled by this change before the wiring
+    // slice makes the path reachable; the encoded form is pinned by
+    // `a_hostile_owner_id_reaches_the_peer_as_one_encoded_parameter`).
+    let url = format!("{}/{}", base_url.trim_end_matches('/'), endpoint);
+    let mut pairs: Vec<(&str, &str)> = vec![("limit", "1")];
     if let Some(owner) = owner_id {
-        url.push_str(&format!("&owner_id={owner}"));
+        pairs.push(("owner_id", owner));
     }
 
     let resp = match client
         .get(&url)
+        .query(&pairs)
         .header("Authorization", auth_header)
         .send()
         .await
