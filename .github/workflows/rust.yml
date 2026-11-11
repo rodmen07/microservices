@@ -398,10 +398,17 @@ jobs:
   #   AUDIT_SERVICE_URL allow-list entry dead, which is a hard failure.
   #
   # Services are deployed in parallel after tests pass.
+  #
+  # GATED OFF since 2026-11-11. GCP billing was unlinked from the project to take
+  # hosting spend to zero, so every image push and Cloud Run deploy would fail
+  # and turn each merge red. The job now runs only when the repository variable
+  # CLOUD_DEPLOY_ENABLED is exactly 'true' (unset = skipped, not failed). To
+  # resume: relink billing, start Cloud SQL (`--activation-policy=ALWAYS`), then
+  # `gh variable set CLOUD_DEPLOY_ENABLED --body true -R rodmen07/microservices`.
   deploy:
     name: Deploy ${{ matrix.service }}
     needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: vars.CLOUD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -2,7 +2,7 @@
 
 ## What this project is
 
-InfraPortal: a portfolio microservices system. This workspace holds **eleven** independently deployed Rust services (the exact `[workspace] members` list in the root `Cargo.toml` is the source of truth), all production-grade: Rust/Axum, Cloud SQL PostgreSQL persistence (`PgPool` — no service uses SQLite), JWT authentication. A merge to `main` deploys all eleven to Google Cloud Run.
+InfraPortal: a portfolio microservices system. This workspace holds **eleven** independently deployed Rust services (the exact `[workspace] members` list in the root `Cargo.toml` is the source of truth), all production-grade: Rust/Axum, Cloud SQL PostgreSQL persistence (`PgPool` — no service uses SQLite), JWT authentication. A merge to `main` deploys all eleven to Google Cloud Run **only when the repository variable `CLOUD_DEPLOY_ENABLED` is `'true'`; it is unset since 2026-11-11** (GCP billing unlinked to zero hosting spend), so today a merge deploys nothing and the hosted endpoints do not serve.
 
 **The eleven workspace services** (port = local `docker-compose.yml` host port; Cloud Run injects `PORT` in production):
 
@@ -28,7 +28,7 @@ InfraPortal: a portfolio microservices system. This workspace holds **eleven** i
 
 `cargo` IS available from the Git Bash shell at `/c/Users/rodme/.cargo/bin/cargo.exe` (it is merely absent from the default PATH). `cargo check`, `cargo test`, `cargo clippy` and `cargo audit` all work and have compiled this workspace locally (verified 2026-08-08; earlier prose claiming a blanket `dlltool.exe` failure is superseded — if a from-scratch build exceeds a tool timeout, scope it with `-p <crate>`). WSL (Ubuntu 22.04) in the VS Code integrated terminal is an alternative. Tests that hit a database need a local Postgres; CI provides one, so DB-backed test *execution* is normally left to CI.
 
-CI (`.github/workflows/rust.yml`) is a single fail-closed pipeline: a `Detect changes` classifier skips the cargo jobs on docs-only diffs; code diffs run `cargo clippy -D warnings` + `cargo test` per service against a Postgres service container, plus `cargo audit --deny warnings`; a merge to `main` additionally deploys all eleven services to Cloud Run with a post-deploy `/health` smoke test that fails the job if a service does not serve.
+CI (`.github/workflows/rust.yml`) is a single fail-closed pipeline: a `Detect changes` classifier skips the cargo jobs on docs-only diffs; code diffs run `cargo clippy -D warnings` + `cargo test` per service against a Postgres service container, plus `cargo audit --deny warnings`; when `CLOUD_DEPLOY_ENABLED` is `'true'`, a merge to `main` additionally deploys all eleven services to Cloud Run with a post-deploy `/health` smoke test that fails the job if a service does not serve. While the variable is unset (the state since 2026-11-11) the `deploy` job is SKIPPED, not failed; a skipped deploy is expected and is not a CI bug to fix.
 
 ---
 
@@ -178,6 +178,8 @@ When a service needs to validate a foreign key from another service (e.g. contac
 ---
 
 ## Google Cloud deployment
+
+> **Offline since 2026-11-11 (owner decision, hosting spend to zero).** GCP billing is unlinked from `microservices-489413`; the Cloud SQL instance below is stopped and the deploy job is gated off by the unset `CLOUD_DEPLOY_ENABLED` variable. Everything in this section describes how deployment works when re-enabled. To resume, in order: relink billing, `gcloud sql instances patch microservices-pg --project microservices-489413 --activation-policy=ALWAYS`, then `gh variable set CLOUD_DEPLOY_ENABLED --body true -R rodmen07/microservices`. Never do any of these without an explicit owner instruction.
 
 CI/CD deploys Rust services to Google Cloud Run and pushes images to Artifact Registry.
 Persistence: Cloud SQL PostgreSQL 16 instance at `microservices-489413:us-south1:microservices-pg`.
